@@ -45,10 +45,12 @@ def _show_detail(
             current_label = us["statuses"]["label"]
             col1, col2 = st.columns([2, 1])
             with col1:
+                status_keys = list(status_options.keys())
+                current_idx = status_keys.index(current_label) if current_label in status_keys else 0
                 new_label = st.selectbox(
                     p["name"],
-                    list(status_options.keys()),
-                    index=list(status_options.keys()).index(current_label),
+                    status_keys,
+                    index=current_idx,
                     key=f"status_{fixture['id']}_{p['id']}",
                 )
                 if contacts.get(p["id"]):
@@ -100,7 +102,10 @@ def _show_add_form(teams: list[dict], platforms: list[dict], statuses: list[dict
         st.subheader("Add fixture")
         team_names = [t["name"] for t in teams]
         chosen_team_name = st.selectbox("Home team (client)", team_names, key="add_team")
-        team = next(t for t in teams if t["name"] == chosen_team_name)
+        team = next((t for t in teams if t["name"] == chosen_team_name), None)
+        if team is None:
+            st.error("Selected team not found.")
+            return
         away = st.text_input("Away team", key="add_away")
         match_date = st.date_input("Match date", min_value=_date.today(), key="add_date")
         sales_deadline = st.date_input(
