@@ -50,12 +50,12 @@ def style_tracker_df(
         c = colour_map.get(val)
         return f"background-color: {c}; color: white" if c else ""
 
+    pending_label = next((s["label"] for s in statuses if s["name"] == "pending"), "Pending")
+    today_str = today.isoformat()
+
     def row_style(row: pd.Series) -> list[str]:
         deadline = row.get("Approval Deadline")
-        if deadline and deadline < str(today):
-            pending_label = next(
-                (s["label"] for s in statuses if s["name"] == "pending"), "Pending"
-            )
+        if deadline and str(deadline)[:10] < today_str:
             if any(row.get(p) == pending_label for p in platform_names):
                 return ["background-color: #fff3cd"] * len(row)
         return [""] * len(row)
@@ -67,6 +67,6 @@ def style_tracker_df(
 
 def has_overdue_pending(row: pd.Series, platform_names: list[str]) -> bool:
     deadline = row.get("Approval Deadline")
-    if not deadline or deadline >= str(date.today()):
+    if not deadline or str(deadline)[:10] >= date.today().isoformat():
         return False
     return any(row.get(p) not in ("Uploaded", "—") for p in platform_names)
