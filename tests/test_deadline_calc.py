@@ -15,11 +15,11 @@ def test_approval_deadline_skips_weekend():
 
 def test_approval_deadline_skips_holidays():
     # Wednesday 2026-06-10, 2 working days back, Monday 2026-06-08 is holiday
-    # Expect: skip Mon, count Fri 2026-06-05 as day 1, Thu 2026-06-04 as day 2 → 2026-06-04
+    # Count: Tue 2026-06-09 = day 1, Mon skipped (holiday), Fri 2026-06-05 = day 2 → 2026-06-05
     match = date(2026, 6, 10)
     holidays = [date(2026, 6, 8)]
     result = calc_approval_deadline(match, 2, holidays)
-    assert result == date(2026, 6, 4)
+    assert result == date(2026, 6, 5)
 
 def test_approval_deadline_returns_match_date_for_weekend():
     saturday = date(2026, 6, 6)
