@@ -66,3 +66,46 @@ def test_get_holidays_returns_sorted(mock_sb):
     chain.execute.return_value = MagicMock(data=[{"date": "2026-12-25", "description": "Christmas"}])
     result = db.get_holidays(client=client)
     assert result[0]["date"] == "2026-12-25"
+
+def test_upsert_fixture_feed_uses_on_conflict(mock_sb):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[{"id": "new-id"}])
+    fixture = {"feed_event_id": "evt123", "match_date": "2026-06-01", "team_id": "t1", "away_team": "Portland"}
+    result = db.upsert_fixture(fixture, client=client)
+    assert result == "new-id"
+    chain.upsert.assert_called_once()
+
+def test_upsert_fixture_manual_uses_insert(mock_sb):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[{"id": "manual-id"}])
+    fixture = {"match_date": "2026-06-01", "team_id": "t1", "away_team": "Portland"}
+    result = db.upsert_fixture(fixture, client=client)
+    assert result == "manual-id"
+    chain.insert.assert_called_once()
+
+def test_update_upload_status_calls_update(mock_sb):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[])
+    db.update_upload_status("fix-1", "plat-1", "stat-1", "Alice", client=client)
+    chain.update.assert_called_once()
+
+def test_set_team_platforms_deletes_then_inserts(mock_sb):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[])
+    db.set_team_platforms("team-1", ["p1", "p2"], client=client)
+    chain.delete.assert_called_once()
+    chain.insert.assert_called_once()
+
+def test_delete_platform_raises_if_in_use(mock_sb):
+    import pytest
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[{"fixture_id": "f1"}])
+    with pytest.raises(ValueError, match="in use"):
+        db.delete_platform("plat-1", client=client)
+
+def test_delete_status_raises_if_system(mock_sb):
+    import pytest
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data={"is_system": True})
+    with pytest.raises(ValueError, match="system"):
+        db.delete_status("stat-1", client=client)
