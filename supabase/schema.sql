@@ -15,6 +15,15 @@ insert into statuses (name, label, colour, display_order, is_system) values
     ('pending',  'Pending',  '#e74c3c', 1, true),
     ('uploaded', 'Uploaded', '#27ae60', 2, true);
 
+-- Auto-update updated_at on row changes
+create or replace function set_updated_at()
+returns trigger language plpgsql as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
 -- Platforms
 create table platforms (
     id uuid primary key default uuid_generate_v4(),
@@ -57,6 +66,12 @@ create table fixtures (
     updated_at timestamptz not null default now()
 );
 
+create trigger fixtures_set_updated_at
+before update on fixtures
+for each row execute procedure set_updated_at();
+
+create index on fixtures(team_id);
+
 -- Upload status per (fixture, platform) — only for active team platforms
 create table upload_statuses (
     fixture_id uuid not null references fixtures(id) on delete cascade,
@@ -67,12 +82,17 @@ create table upload_statuses (
     primary key (fixture_id, platform_id)
 );
 
+create trigger upload_statuses_set_updated_at
+before update on upload_statuses
+for each row execute procedure set_updated_at();
+
 -- Delivery contact info per (team, platform)
 create table delivery_contacts (
     team_id uuid not null references teams(id) on delete cascade,
     platform_id uuid not null references platforms(id) on delete cascade,
     contact_info text not null default '',
-    primary key (team_id, platform_id)
+    primary key (team_id, platform_id),
+    foreign key (team_id, platform_id) references team_platforms(team_id, platform_id) on delete cascade
 );
 
 -- Holiday dates for deadline calculation
