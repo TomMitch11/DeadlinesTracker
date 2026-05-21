@@ -21,10 +21,11 @@ def test_approval_deadline_skips_holidays():
     result = calc_approval_deadline(match, 2, holidays)
     assert result == date(2026, 6, 5)
 
-def test_approval_deadline_returns_match_date_for_weekend():
+def test_approval_deadline_weekend_match_returns_weekday():
+    # Saturday 2026-06-06, 3 working days back = Wednesday 2026-06-03
     saturday = date(2026, 6, 6)
     result = calc_approval_deadline(saturday, 3, [])
-    assert result == saturday
+    assert result == date(2026, 6, 3)
 
 def test_wc_deadline_is_monday_of_approval_week():
     # Wednesday 2026-06-03 → Monday 2026-06-01

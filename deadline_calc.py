@@ -2,8 +2,6 @@ from datetime import date, timedelta
 
 
 def calc_approval_deadline(match_date: date, deadline_days: int, holidays: list[date]) -> date:
-    if match_date.weekday() >= 5:  # Saturday=5, Sunday=6
-        return match_date
     holidays_set = set(holidays)
     result = match_date
     days_counted = 0
