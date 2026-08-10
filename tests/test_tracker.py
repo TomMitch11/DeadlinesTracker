@@ -1,5 +1,6 @@
+import io
 import pandas as pd
-from tracker import build_tracker_df, style_tracker_df, has_overdue_pending
+from tracker import build_excel_export, build_tracker_df, style_tracker_df, has_overdue_pending
 
 PLATFORMS = [
     {"id": "p1", "name": "CF", "display_order": 1},
@@ -79,3 +80,20 @@ def test_has_overdue_pending_false_when_all_uploaded():
     ]}
     df = build_tracker_df([all_uploaded], PLATFORMS, STATUSES)
     assert not has_overdue_pending(df.iloc[0], ["CF", "Big Screen"])
+
+def test_build_excel_export_round_trips_data():
+    df = build_tracker_df([FIXTURE], PLATFORMS, STATUSES)
+    xlsx_bytes = build_excel_export(df)
+    assert isinstance(xlsx_bytes, bytes)
+    assert len(xlsx_bytes) > 0
+    result = pd.read_excel(io.BytesIO(xlsx_bytes))
+    assert list(result.columns) == list(df.columns)
+    assert result.iloc[0]["Home Team"] == "LA Galaxy"
+    assert result.iloc[0]["Away Team"] == "Portland"
+
+def test_build_excel_export_respects_column_subset():
+    df = build_tracker_df([FIXTURE], PLATFORMS, STATUSES)
+    subset = df[["Home Team", "Away Team"]]
+    xlsx_bytes = build_excel_export(subset)
+    result = pd.read_excel(io.BytesIO(xlsx_bytes))
+    assert list(result.columns) == ["Home Team", "Away Team"]

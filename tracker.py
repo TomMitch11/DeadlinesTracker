@@ -1,4 +1,5 @@
 from __future__ import annotations
+import io
 from datetime import date, datetime, timedelta, timezone as _tz
 from zoneinfo import ZoneInfo
 import pandas as pd
@@ -139,6 +140,12 @@ def style_tracker_df(
     styler = styler.apply(row_style, axis=1)
     styler = styler.format(fmt_date, subset=deadline_cols)
     return styler
+
+
+def build_excel_export(export_df: pd.DataFrame) -> bytes:
+    buffer = io.BytesIO()
+    export_df.to_excel(buffer, index=False, engine="openpyxl", sheet_name="Deadlines")
+    return buffer.getvalue()
 
 
 def has_overdue_pending(row: pd.Series, platform_names: list[str]) -> bool:

@@ -1,10 +1,13 @@
+from datetime import date as _date
+
 import streamlit as st
 import db
-from tracker import build_tracker_df, style_tracker_df
+from tracker import build_excel_export, build_tracker_df, style_tracker_df
 
 st.set_page_config(page_title="Deadlines Tracker", layout="wide")
 
 # ── Helper functions ──────────────────────────────────────────────────────────
+
 
 def _show_detail(
     fixture: dict,
@@ -333,6 +336,15 @@ styled = style_tracker_df(df, platforms, statuses)
 # Apply column visibility — hide deselected info columns but keep platform columns
 visible_cols = [c for c in df.columns if c not in hidden_cols]
 styled = styled.hide(axis="columns", subset=[c for c in hidden_cols if c in df.columns])
+
+with st.sidebar:
+    st.download_button(
+        "⬇️ Download Excel",
+        data=build_excel_export(df[visible_cols]),
+        file_name=f"deadlines_tracker_{_date.today().isoformat()}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
 
 # ── Tracker table ─────────────────────────────────────────────────────────────
 st.caption(f"Showing {len(fixtures)} fixture(s). Click a row to view details and update statuses.")
