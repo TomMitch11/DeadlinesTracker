@@ -52,6 +52,9 @@ def _parse_fixture_date(date_str: str) -> tuple[date, str | None, str | None]:
 
 
 def sync_team(team: dict, holidays: list[date]) -> dict:
+    if not team.get("feed_team_id"):
+        raise ValueError(f"No feed_team_id (API-Football team ID) set for team '{team['name']}'")
+
     cfg = get_api_football_config()
     season_year = _season_year(team["season"])
     team_feed_id = int(team["feed_team_id"])
@@ -115,4 +118,10 @@ def sync_all_api_football_teams() -> dict[str, dict]:
     holidays_raw = db.get_holidays()
     holidays = [date.fromisoformat(h["date"]) for h in holidays_raw]
     teams = [t for t in db.get_teams() if t.get("feed_source") == "api_football"]
-    return {team["name"]: sync_team(team, holidays) for team in teams}
+    results: dict[str, dict] = {}
+    for team in teams:
+        try:
+            results[team["name"]] = sync_team(team, holidays)
+        except (ConnectionError, PermissionError, ValueError) as e:
+            results[team["name"]] = {"error": str(e)}
+    return results

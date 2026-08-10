@@ -244,7 +244,9 @@ with st.sidebar:
             else:
                 any_new = False
                 for team_name, s in results.items():
-                    if s["upserted"] > 0:
+                    if "error" in s:
+                        st.error(f"{team_name}: {s['error']}")
+                    elif s["upserted"] > 0:
                         st.success(f"{team_name}: {s['upserted']} fixture(s) added/updated.")
                         any_new = True
                     else:
@@ -267,7 +269,9 @@ with st.sidebar:
             else:
                 any_new = False
                 for team_name, s in results.items():
-                    if s["upserted"] > 0:
+                    if "error" in s:
+                        st.error(f"{team_name}: {s['error']}")
+                    elif s["upserted"] > 0:
                         st.success(f"{team_name}: {s['upserted']} fixture(s) added/updated.")
                         any_new = True
                     else:
@@ -290,7 +294,9 @@ with st.sidebar:
             else:
                 any_new = False
                 for team_name, s in results.items():
-                    if s["upserted"] > 0:
+                    if "error" in s:
+                        st.error(f"{team_name}: {s['error']}")
+                    elif s["upserted"] > 0:
                         st.success(f"{team_name}: {s['upserted']} fixture(s) added/updated.")
                         any_new = True
                     elif s["total_home"] == 0:

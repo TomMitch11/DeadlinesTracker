@@ -25,7 +25,7 @@ def _league_home_uids(league_slug: str, team_name: str) -> set[str]:
     """Return UIDs of fixtures where team_name is the home side in the league feed."""
     try:
         events = _fetch_events(_BASE_LEAGUE.format(league_slug))
-    except (ConnectionError, Exception):
+    except ConnectionError:
         return set()
     prefix = team_name.lower()
     uids = set()
@@ -118,11 +118,9 @@ def sync_team(team: dict, holidays: list[date]) -> tuple[dict, list[dict], list[
             "feed_event_id": game_id,
             "venue": team.get("default_venue") if is_new else existing.get("venue"),
         }
-        db.upsert_fixture(fixture)
+        fid = db.upsert_fixture(fixture)
         if is_new:
-            db.create_upload_statuses_for_fixture(
-                db.get_fixture_by_feed_event_id(game_id)["id"], team["id"]
-            )
+            db.create_upload_statuses_for_fixture(fid, team["id"])
 
         notification_data = {
             "home_team": team["name"],
@@ -162,7 +160,11 @@ def sync_all_ical_teams() -> dict[str, dict]:
     results: dict[str, dict] = {}
 
     for team in teams:
-        stats, new_f, resched_f = sync_team(team, holidays)
+        try:
+            stats, new_f, resched_f = sync_team(team, holidays)
+        except (ConnectionError, PermissionError, ValueError) as e:
+            results[team["name"]] = {"error": str(e)}
+            continue
         results[team["name"]] = stats
         all_new.extend(new_f)
         all_rescheduled.extend(resched_f)

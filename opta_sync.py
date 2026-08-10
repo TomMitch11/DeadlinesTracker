@@ -86,7 +86,8 @@ def _parse_f1_json(data: dict) -> tuple[list[dict], dict[str, str], str]:
 
 def _parse_f1_xml(text: str) -> tuple[list[dict], dict[str, str], str]:
     root = ET.fromstring(text)
-    doc = root.find("SoccerDocument") or root
+    found = root.find("SoccerDocument")
+    doc = found if found is not None else root
     competition_name = doc.get("competition_name", "")
 
     teams: dict[str, str] = {}
@@ -161,6 +162,9 @@ def sync_team(team: dict, holidays: list[date]) -> dict:
     Competition name and UTC offset are read directly from the feed — no manual
     configuration required on the team record.
     """
+    if not team.get("feed_team_id"):
+        raise ValueError(f"No feed_team_id (Opta team ID) set for team '{team['name']}'")
+
     cfg = get_opta_config()
     primary_season_id = int(team["season"].split("-")[0])
     comp_id = str(team["feed_competition_id"])
@@ -248,4 +252,10 @@ def sync_all_opta_teams() -> dict[str, dict]:
     holidays_raw = db.get_holidays()
     holidays = [date.fromisoformat(h["date"]) for h in holidays_raw]
     teams = [t for t in db.get_teams() if t.get("feed_source") == "opta"]
-    return {team["name"]: sync_team(team, holidays) for team in teams}
+    results: dict[str, dict] = {}
+    for team in teams:
+        try:
+            results[team["name"]] = sync_team(team, holidays)
+        except (ConnectionError, PermissionError, ValueError) as e:
+            results[team["name"]] = {"error": str(e)}
+    return results

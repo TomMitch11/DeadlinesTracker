@@ -1,4 +1,5 @@
 from __future__ import annotations
+import html
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -33,17 +34,19 @@ def _fixture_block(f: dict, badge: str = "", badge_colour: str = "#3498db") -> s
         f"border-radius:4px;font-size:12px;margin-left:8px;'>{badge}</span>"
         if badge else ""
     )
+    home_team = html.escape(f["home_team"])
+    away_team = html.escape(f["away_team"])
     rows = [
-        _row("Match", f"{f['home_team']} vs {f['away_team']}{badge_html}"),
+        _row("Match", f"{home_team} vs {away_team}{badge_html}"),
         _row("Date", f["match_date"]),
-        _row("Competition", f.get("competition") or "—"),
-        _row("Venue", f.get("venue") or "—"),
+        _row("Competition", html.escape(f.get("competition") or "—")),
+        _row("Venue", html.escape(f.get("venue") or "—")),
         _row("Approval deadline", f["approval_deadline"]),
     ]
     if f.get("old_date"):
-        rows.insert(2, _row("Previous date", f"<s>{f['old_date']}</s>"))
+        rows.insert(2, _row("Previous date", f"<s>{html.escape(f['old_date'])}</s>"))
     if f.get("cup_warning"):
-        rows.append(_row("⚠️ Note", f["cup_warning"]))
+        rows.append(_row("⚠️ Note", html.escape(f["cup_warning"])))
     return (
         "<div style='border-left:3px solid #ddd;padding:8px 16px;margin:12px 0;'>"
         f"<table style='font-family:sans-serif;font-size:14px;'>{''.join(rows)}</table>"
