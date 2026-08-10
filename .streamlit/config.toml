@@ -1,10 +1,10 @@
 [theme]
 base = "dark"
-primaryColor = "#2CCCD3"
+primaryColor = "#7C878E"
 backgroundColor = "#101820"
 secondaryBackgroundColor = "#3B3F44"
 textColor = "#FFFFFF"
-linkColor = "#2CCCD3"
+linkColor = "#7C878E"
 borderColor = "#7C878E"
 dataframeBorderColor = "#7C878E"
 
