@@ -37,22 +37,22 @@ the existing one.
 
 ## Approach
 
-Dark theme, using Digital Blue as the primary accent (both confirmed
-with the user over Pulse Purple and Locally Yellow — Digital Blue is
-the signature colour in the logo and reads clearly on a dark
-background for buttons and links; Locally Yellow is too high-contrast
-for use as a whole-app accent).
+Dark theme. Digital Blue was the initial choice for primary accent
+(confirmed with the user over Pulse Purple and Locally Yellow), but
+after seeing it live the user found it didn't work and asked to
+switch to Mid Grey instead — the theme now uses Mid Grey as the
+primary accent throughout.
 
 Identical `[theme]` block applied to both repos:
 
 ```toml
 [theme]
 base = "dark"
-primaryColor = "#2CCCD3"             # Digital Blue — buttons, active widgets, sliders
+primaryColor = "#7C878E"             # Mid Grey — buttons, active widgets, sliders
 backgroundColor = "#101820"          # Off Black — main content background
 secondaryBackgroundColor = "#3B3F44" # Slate Grey — widget backgrounds (inputs, expanders)
 textColor = "#FFFFFF"                # White
-linkColor = "#2CCCD3"                # Digital Blue
+linkColor = "#7C878E"                # Mid Grey
 borderColor = "#7C878E"              # Mid Grey
 dataframeBorderColor = "#7C878E"     # Mid Grey
 
@@ -99,7 +99,7 @@ manual and visual:
    forms, and the sidebar.
 3. Confirm the DeadlinesTracker dataframe's status-pill and overdue-row
    highlight colours are still readable against the new chrome.
-4. Confirm button text on Digital Blue buttons is legible (Streamlit
+4. Confirm button text on Mid Grey buttons is legible (Streamlit
    auto-computes button text colour from `primaryColor`'s luminance;
    verify it didn't pick something illegible).
 
