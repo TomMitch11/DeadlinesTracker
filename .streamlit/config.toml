@@ -1,0 +1,12 @@
+[theme]
+base = "dark"
+primaryColor = "#2CCCD3"
+backgroundColor = "#101820"
+secondaryBackgroundColor = "#3B3F44"
+textColor = "#FFFFFF"
+linkColor = "#2CCCD3"
+borderColor = "#7C878E"
+dataframeBorderColor = "#7C878E"
+
+[theme.sidebar]
+backgroundColor = "#3B3F44"
