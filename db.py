@@ -11,7 +11,7 @@ def _client() -> Client:
 
 def get_upcoming_fixtures(
     days: int | None = 14,
-    team_id: str | None = None,
+    team_ids: list[str] | None = None,
     *,
     client: Client | None = None,
 ) -> list[dict]:
@@ -20,9 +20,9 @@ def get_upcoming_fixtures(
     q = (
         cl.table("fixtures")
         .select(
-            "id, team_id, away_team, match_date, approval_deadline, "
-            "wc_deadline, sales_deadline, notes, season, source, "
-            "teams(id, name), "
+            "id, team_id, away_team, match_date, match_time, match_utc_offset, approval_deadline, "
+            "wc_deadline, sales_deadline, notes, season, source, venue, "
+            "teams(id, name, competition), "
             "upload_statuses("
             "  platform_id, status_id, updated_by, updated_at, "
             "  statuses(id, name, label, colour), "
@@ -34,8 +34,8 @@ def get_upcoming_fixtures(
     if days is not None:
         cutoff = today + timedelta(days=days)
         q = q.lte("match_date", str(cutoff))
-    if team_id:
-        q = q.eq("team_id", team_id)
+    if team_ids:
+        q = q.in_("team_id", team_ids)
     return q.order("approval_deadline").execute().data
 
 def get_fixture(fixture_id: str, *, client: Client | None = None) -> dict:
@@ -113,6 +113,18 @@ def get_holidays(*, client: Client | None = None) -> list[dict]:
     cl = client or _client()
     return cl.table("holidays").select("*").order("date").execute().data
 
+# ── Fixture reads (single) ────────────────────────────────────────────────────
+
+def get_fixture_by_feed_event_id(feed_event_id: str, *, client: Client | None = None) -> dict | None:
+    cl = client or _client()
+    result = (
+        cl.table("fixtures")
+        .select("id, match_date, match_time, away_team")
+        .eq("feed_event_id", feed_event_id)
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
 # ── Fixture writes ────────────────────────────────────────────────────────────
 
 def upsert_fixture(fixture: dict, *, client: Client | None = None) -> str:
@@ -125,7 +137,11 @@ def upsert_fixture(fixture: dict, *, client: Client | None = None) -> str:
 
 def update_fixture_notes(fixture_id: str, notes: str, *, client: Client | None = None) -> None:
     cl = client or _client()
-    cl.table("fixtures").update({"notes": notes, "updated_at": "now()"}).eq("id", fixture_id).execute()
+    cl.table("fixtures").update({"notes": notes}).eq("id", fixture_id).execute()
+
+def update_fixture_venue(fixture_id: str, venue: str | None, *, client: Client | None = None) -> None:
+    cl = client or _client()
+    cl.table("fixtures").update({"venue": venue}).eq("id", fixture_id).execute()
 
 def update_fixture_dates(
     fixture_id: str,
@@ -150,6 +166,8 @@ def update_fixture_manual(
     approval_deadline: str,
     wc_deadline: str,
     sales_deadline: str | None,
+    match_time: str | None = None,
+    match_utc_offset: str | None = None,
     *,
     client: Client | None = None,
 ) -> None:
@@ -159,7 +177,8 @@ def update_fixture_manual(
         "match_date": match_date,
         "approval_deadline": approval_deadline,
         "wc_deadline": wc_deadline,
-        "updated_at": "now()",
+        "match_time": match_time,
+        "match_utc_offset": match_utc_offset,
     }
     if sales_deadline:
         payload["sales_deadline"] = sales_deadline
@@ -175,11 +194,16 @@ def create_upload_statuses_for_fixture(
 ) -> None:
     cl = client or _client()
     platform_ids = get_team_platforms(team_id, client=cl)
+    if not platform_ids:
+        return
     pending = cl.table("statuses").select("id").eq("name", "pending").single().execute().data
-    if platform_ids:
+    existing = cl.table("upload_statuses").select("platform_id").eq("fixture_id", fixture_id).execute().data
+    existing_ids = {r["platform_id"] for r in existing}
+    new_ids = [pid for pid in platform_ids if pid not in existing_ids]
+    if new_ids:
         cl.table("upload_statuses").insert([
             {"fixture_id": fixture_id, "platform_id": pid, "status_id": pending["id"]}
-            for pid in platform_ids
+            for pid in new_ids
         ]).execute()
 
 def update_upload_status(
@@ -199,6 +223,15 @@ def update_upload_status(
     }).eq("fixture_id", fixture_id).eq("platform_id", platform_id).execute()
 
 # ── Team writes ───────────────────────────────────────────────────────────────
+
+def update_team_competition(team_id: str, competition: str, *, client: Client | None = None) -> None:
+    cl = client or _client()
+    cl.table("teams").update({"competition": competition}).eq("id", team_id).execute()
+
+def propagate_competition_name(feed_competition_id: str, competition: str, *, client: Client | None = None) -> None:
+    """Set the competition display name on every team sharing the same feed_competition_id."""
+    cl = client or _client()
+    cl.table("teams").update({"competition": competition}).eq("feed_competition_id", feed_competition_id).execute()
 
 def upsert_team(team: dict, *, client: Client | None = None) -> str:
     cl = client or _client()

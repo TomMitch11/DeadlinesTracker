@@ -8,12 +8,51 @@ tab_teams, tab_platforms, tab_statuses, tab_holidays = st.tabs(
     ["Teams", "Platforms", "Statuses", "Holidays"]
 )
 
+
+@st.dialog("Quick add team")
+def _quick_add_team(platforms: list[dict], existing_competitions: list[str]) -> None:
+    with st.form("quick_add_form"):
+        qa_name = st.text_input("Team name")
+        qa_competition = st.selectbox(
+            "Competition",
+            [""] + existing_competitions + ["+ New competition"],
+            key="qa_comp_sel",
+        )
+        if qa_competition == "+ New competition":
+            qa_competition = st.text_input("Competition name", key="qa_comp_new")
+        qa_deadline = st.number_input("Deadline days", min_value=1, max_value=14, value=3)
+        st.markdown("**Platforms**")
+        qa_platforms = [p["id"] for p in platforms if st.checkbox(p["name"], value=True, key=f"qa_plat_{p['id']}")]
+        if st.form_submit_button("Add team"):
+            if qa_name.strip():
+                payload = {
+                    "name": qa_name.strip(),
+                    "competition": qa_competition.strip() or None,
+                    "deadline_days": int(qa_deadline),
+                    "feed_source": "manual",
+                    "season": "2025-26",
+                }
+                team_id = db.upsert_team(payload)
+                db.set_team_platforms(team_id, qa_platforms)
+                st.success(f"'{qa_name.strip()}' added. Edit the full record below to add feed details.")
+                st.rerun()
+            else:
+                st.warning("Team name is required.")
+
+
 # ── Teams tab ─────────────────────────────────────────────────────────────────
 with tab_teams:
     teams = db.get_teams()
     platforms = db.get_platforms()
 
-    st.subheader("Teams")
+    col_hdr, col_btn = st.columns([4, 1])
+    with col_hdr:
+        st.subheader("Teams")
+    with col_btn:
+        if st.button("Quick add", use_container_width=True, type="primary"):
+            existing_competitions = sorted({t["competition"] for t in teams if t.get("competition")})
+            _quick_add_team(platforms, existing_competitions)
+
     team_names = [t["name"] for t in teams] + ["+ Add new team"]
     chosen = st.selectbox("Select team to edit", team_names)
 
@@ -28,21 +67,27 @@ with tab_teams:
             "Deadline days (working days before match)", min_value=1, max_value=14,
             value=editing.get("deadline_days", 3)
         )
+        _feed_sources = ["manual", "opta", "statsperform", "api_football", "ical"]
         feed_source = st.selectbox(
             "Feed source",
-            ["manual", "opta", "statsperform"],
-            index=["manual", "opta", "statsperform"].index(editing.get("feed_source", "manual")),
+            _feed_sources,
+            index=_feed_sources.index(editing.get("feed_source", "manual")),
         )
         feed_competition_id = st.text_input(
-            "Opta competition ID (leave blank if not Opta)",
+            "Competition / League ID (Opta competition ID or API-Football league ID)",
             value=editing.get("feed_competition_id") or "",
         )
+        _ical_hint = " — for iCal, this is the fixtur.es slug e.g. tottenham-hotspur-women" if editing.get("feed_source") == "ical" else ""
         feed_team_id = st.text_input(
-            "Stats Perform team ID (leave blank if not Stats Perform)",
+            f"Team ID in feed (Opta / Stats Perform / API-Football ID, or fixtur.es slug for iCal){_ical_hint}",
             value=editing.get("feed_team_id") or "",
         )
+        default_venue = st.text_input(
+            "Default venue (used when syncing fixtures — can be overridden per fixture)",
+            value=editing.get("default_venue") or "",
+        )
+        competition = st.text_input("Competition / league (e.g. MLS, Championship)", value=editing.get("competition") or "")
         season = st.text_input("Current season", value=editing.get("season", "2025-26"))
-
         st.markdown("**Active platforms for this team**")
         active_platform_ids = db.get_team_platforms(editing["id"]) if editing.get("id") else []
         selected_platforms = []
@@ -56,16 +101,23 @@ with tab_teams:
     if submitted and name.strip():
         payload = {
             "name": name.strip(),
+            "competition": competition.strip() or None,
             "deadline_days": int(deadline_days),
             "feed_source": feed_source,
             "feed_competition_id": feed_competition_id.strip() or None,
             "feed_team_id": feed_team_id.strip() or None,
             "season": season.strip(),
+            "default_venue": default_venue.strip() or None,
         }
         if editing.get("id"):
             payload["id"] = editing["id"]
         team_id = db.upsert_team(payload)
         db.set_team_platforms(team_id, selected_platforms)
+        # Propagate competition name to all teams in the same feed competition
+        comp_val = competition.strip()
+        comp_id_val = feed_competition_id.strip()
+        if comp_val and comp_id_val:
+            db.propagate_competition_name(comp_id_val, comp_val)
         st.success(f"Team '{name}' saved.")
         st.rerun()
 

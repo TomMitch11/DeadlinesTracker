@@ -48,8 +48,8 @@ def test_get_upcoming_fixtures_no_team_filter(mock_sb):
 def test_get_upcoming_fixtures_with_team_filter(mock_sb):
     client, chain = mock_sb
     chain.execute.return_value = MagicMock(data=[])
-    db.get_upcoming_fixtures(days=14, team_id="team-abc", client=client)
-    chain.eq.assert_called_with("team_id", "team-abc")
+    db.get_upcoming_fixtures(days=14, team_ids=["team-abc"], client=client)
+    chain.in_.assert_called_with("team_id", ["team-abc"])
 
 def test_get_statuses_returns_list(mock_sb):
     client, chain = mock_sb

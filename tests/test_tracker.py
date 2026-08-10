@@ -53,9 +53,9 @@ def test_build_tracker_df_grey_for_inactive_platform():
     df = build_tracker_df([fixture_no_p2], PLATFORMS, STATUSES)
     assert df.iloc[0]["Big Screen"] == "—"
 
-def test_build_tracker_df_notes_icon():
+def test_build_tracker_df_notes_text():
     df = build_tracker_df([FIXTURE], PLATFORMS, STATUSES)
-    assert df.iloc[0]["Notes"] == "📝"
+    assert df.iloc[0]["Notes"] == "VIP artwork needed"
 
 def test_build_tracker_df_no_notes_empty():
     quiet = {**FIXTURE, "notes": ""}

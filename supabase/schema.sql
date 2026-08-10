@@ -39,7 +39,9 @@ create table teams (
     feed_source text not null default 'manual',
     feed_competition_id text,
     feed_team_id text,
-    season text not null default '2025-26'
+    season text not null default '2025-26',
+    competition text,
+    default_venue text
 );
 
 -- Which platforms are active per team
@@ -55,6 +57,8 @@ create table fixtures (
     team_id uuid not null references teams(id) on delete cascade,
     away_team text not null,
     match_date date not null,
+    match_time text,
+    match_utc_offset text,
     approval_deadline date,
     wc_deadline date,
     sales_deadline date,
@@ -62,6 +66,7 @@ create table fixtures (
     season text not null,
     source text not null default 'manual',
     feed_event_id text unique,
+    venue text,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
 );
