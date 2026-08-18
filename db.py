@@ -38,6 +38,51 @@ def get_upcoming_fixtures(
         q = q.in_("team_id", team_ids)
     return q.order("approval_deadline").execute().data
 
+def get_sales_fixtures(days: int = 14, *, client: Client | None = None) -> list[dict]:
+    """Sales-facing fixtures. Deliberately selects only sales_deadline —
+    never approval_deadline or wc_deadline, so the real deadline can never
+    reach this view."""
+    cl = client or _client()
+    today = date.today()
+    cutoff = today + timedelta(days=days)
+    return (
+        cl.table("fixtures")
+        .select("id, away_team, match_date, sales_deadline, teams(name)")
+        .gte("match_date", str(today))
+        .lte("match_date", str(cutoff))
+        .order("sales_deadline")
+        .execute()
+        .data
+    )
+
+def get_partner_success_fixtures(days: int = 14, *, client: Client | None = None) -> list[dict]:
+    """Partner Success-facing fixtures. Deliberately selects only
+    partner_success_deadline — never approval_deadline or wc_deadline.
+    Attaches each fixture's active platform names (queried separately via
+    the existing get_platforms/get_team_platforms, not a nested join, to
+    avoid depending on an unverified multi-level Supabase relationship)."""
+    cl = client or _client()
+    today = date.today()
+    cutoff = today + timedelta(days=days)
+    fixtures = (
+        cl.table("fixtures")
+        .select("id, away_team, match_date, partner_success_deadline, team_id, teams(name)")
+        .gte("match_date", str(today))
+        .lte("match_date", str(cutoff))
+        .order("partner_success_deadline")
+        .execute()
+        .data
+    )
+    platform_names_by_id = {p["id"]: p["name"] for p in get_platforms(client=cl)}
+    team_platform_cache: dict[str, list[str]] = {}
+    for f in fixtures:
+        team_id = f["team_id"]
+        if team_id not in team_platform_cache:
+            platform_ids = get_team_platforms(team_id, client=cl)
+            team_platform_cache[team_id] = [platform_names_by_id[pid] for pid in platform_ids if pid in platform_names_by_id]
+        f["platform_names"] = team_platform_cache[team_id]
+    return fixtures
+
 def get_fixture(fixture_id: str, *, client: Client | None = None) -> dict:
     cl = client or _client()
     return (

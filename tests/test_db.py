@@ -138,3 +138,47 @@ def test_recalculate_future_deadlines_writes_all_four_fields(mock_sb):
     update_payload = chain.update.call_args[0][0]
     assert update_payload["sales_deadline"] == "2026-05-29"
     assert update_payload["partner_success_deadline"] == "2026-06-01"
+
+def test_get_sales_fixtures_selects_only_safe_columns(mock_sb):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[])
+    db.get_sales_fixtures(days=14, client=client)
+    select_call = chain.select.call_args_list[0]
+    selected = select_call.args[0]
+    assert "approval_deadline" not in selected
+    assert "wc_deadline" not in selected
+    assert "sales_deadline" in selected
+
+def test_get_sales_fixtures_returns_data(mock_sb):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[
+        {"id": "f1", "away_team": "Wolves", "match_date": "2026-06-05",
+         "sales_deadline": "2026-06-01", "teams": {"name": "Chelsea"}},
+    ])
+    result = db.get_sales_fixtures(client=client)
+    assert result[0]["away_team"] == "Wolves"
+
+def test_get_partner_success_fixtures_selects_only_safe_columns(mock_sb, monkeypatch):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[])
+    monkeypatch.setattr(db, "get_platforms", lambda client=None: [])
+    monkeypatch.setattr(db, "get_team_platforms", lambda team_id, client=None: [])
+    db.get_partner_success_fixtures(days=14, client=client)
+    select_call = chain.select.call_args_list[0]
+    selected = select_call.args[0]
+    assert "approval_deadline" not in selected
+    assert "wc_deadline" not in selected
+    assert "partner_success_deadline" in selected
+
+def test_get_partner_success_fixtures_attaches_platform_names(mock_sb, monkeypatch):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[
+        {"id": "f1", "away_team": "Wolves", "match_date": "2026-06-05",
+         "partner_success_deadline": "2026-06-04", "team_id": "t1", "teams": {"name": "Chelsea"}},
+    ])
+    monkeypatch.setattr(db, "get_platforms", lambda client=None: [
+        {"id": "p1", "name": "Big Screen"}, {"id": "p2", "name": "Programme Page"},
+    ])
+    monkeypatch.setattr(db, "get_team_platforms", lambda team_id, client=None: ["p1"])
+    result = db.get_partner_success_fixtures(client=client)
+    assert result[0]["platform_names"] == ["Big Screen"]
