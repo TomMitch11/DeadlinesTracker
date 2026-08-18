@@ -62,6 +62,7 @@ create table fixtures (
     approval_deadline date,
     wc_deadline date,
     sales_deadline date,
+    partner_success_deadline date,
     notes text not null default '',
     season text not null,
     source text not null default 'manual',
