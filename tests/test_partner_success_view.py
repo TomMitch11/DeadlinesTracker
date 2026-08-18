@@ -9,7 +9,7 @@ def test_partner_success_view_shows_fixture_and_platforms():
          "platform_names": ["Big Screen", "Programme Page"]},
     ]
     with patch("db.get_partner_success_fixtures", return_value=fake_fixtures):
-        partner_success_view_path = os.path.join(os.path.dirname(__file__), "..", "partner_success_view.py")
+        partner_success_view_path = os.path.join(os.path.dirname(__file__), "..", "views", "partner_success_view.py")
         at = AppTest.from_file(partner_success_view_path)
         at.run()
     assert not at.exception
@@ -21,7 +21,7 @@ def test_partner_success_view_shows_fixture_and_platforms():
 
 def test_partner_success_view_handles_zero_fixtures():
     with patch("db.get_partner_success_fixtures", return_value=[]):
-        partner_success_view_path = os.path.join(os.path.dirname(__file__), "..", "partner_success_view.py")
+        partner_success_view_path = os.path.join(os.path.dirname(__file__), "..", "views", "partner_success_view.py")
         at = AppTest.from_file(partner_success_view_path)
         at.run()
     assert not at.exception

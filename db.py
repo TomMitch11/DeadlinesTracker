@@ -188,22 +188,6 @@ def update_fixture_venue(fixture_id: str, venue: str | None, *, client: Client |
     cl = client or _client()
     cl.table("fixtures").update({"venue": venue}).eq("id", fixture_id).execute()
 
-def update_fixture_dates(
-    fixture_id: str,
-    match_date: str,
-    approval_deadline: str,
-    wc_deadline: str,
-    *,
-    client: Client | None = None,
-) -> None:
-    cl = client or _client()
-    cl.table("fixtures").update({
-        "match_date": match_date,
-        "approval_deadline": approval_deadline,
-        "wc_deadline": wc_deadline,
-        "updated_at": "now()",
-    }).eq("id", fixture_id).execute()
-
 def update_fixture_manual(
     fixture_id: str,
     away_team: str,

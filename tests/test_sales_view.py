@@ -8,7 +8,7 @@ def test_sales_view_shows_only_team_date_and_sales_deadline():
          "sales_deadline": "2026-06-01", "teams": {"name": "Chelsea"}},
     ]
     with patch("db.get_sales_fixtures", return_value=fake_fixtures):
-        sales_view_path = os.path.join(os.path.dirname(__file__), "..", "sales_view.py")
+        sales_view_path = os.path.join(os.path.dirname(__file__), "..", "views", "sales_view.py")
         at = AppTest.from_file(sales_view_path)
         at.run()
     assert not at.exception
@@ -19,7 +19,7 @@ def test_sales_view_shows_only_team_date_and_sales_deadline():
 
 def test_sales_view_handles_zero_fixtures():
     with patch("db.get_sales_fixtures", return_value=[]):
-        sales_view_path = os.path.join(os.path.dirname(__file__), "..", "sales_view.py")
+        sales_view_path = os.path.join(os.path.dirname(__file__), "..", "views", "sales_view.py")
         at = AppTest.from_file(sales_view_path)
         at.run()
     assert not at.exception
