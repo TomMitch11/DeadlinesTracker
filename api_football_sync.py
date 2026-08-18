@@ -3,7 +3,7 @@ import requests
 from datetime import date, datetime, timezone as _tz
 from config import get_api_football_config
 import db
-from deadline_calc import calc_approval_deadline, calc_wc_deadline
+from deadline_calc import calc_all_deadlines
 
 _BASE = "https://v3.football.api-sports.io"
 
@@ -86,8 +86,7 @@ def sync_team(team: dict, holidays: list[date]) -> dict:
         away_name = item["teams"]["away"]["name"]
         game_id = f"apif_{item['fixture']['id']}"
 
-        approval = calc_approval_deadline(match_date, team["deadline_days"], holidays)
-        wc = calc_wc_deadline(approval)
+        deadlines = calc_all_deadlines(match_date, team["deadline_days"], holidays)
 
         fixture = {
             "team_id": team["id"],
@@ -95,8 +94,10 @@ def sync_team(team: dict, holidays: list[date]) -> dict:
             "match_date": str(match_date),
             "match_time": match_time,
             "match_utc_offset": utc_offset,
-            "approval_deadline": str(approval),
-            "wc_deadline": str(wc),
+            "approval_deadline": str(deadlines["approval_deadline"]),
+            "wc_deadline": str(deadlines["wc_deadline"]),
+            "sales_deadline": str(deadlines["sales_deadline"]),
+            "partner_success_deadline": str(deadlines["partner_success_deadline"]),
             "season": team["season"],
             "source": "api_football",
             "feed_event_id": game_id,

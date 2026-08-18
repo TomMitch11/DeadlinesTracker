@@ -5,7 +5,7 @@ from datetime import date
 
 from config import get_opta_config
 import db
-from deadline_calc import calc_approval_deadline, calc_wc_deadline
+from deadline_calc import calc_all_deadlines
 
 
 def _ensure_list(value) -> list:
@@ -215,8 +215,7 @@ def sync_team(team: dict, holidays: list[date]) -> dict:
         away_id = m["away_team_id"]
         away_name = all_teams.get(away_id) or all_teams.get(_norm(away_id)) or away_id
 
-        approval = calc_approval_deadline(match_date, team["deadline_days"], holidays)
-        wc = calc_wc_deadline(approval)
+        deadlines = calc_all_deadlines(match_date, team["deadline_days"], holidays)
 
         raw_date = m["date"]
         match_time_utc = raw_date[11:16] if len(raw_date) > 10 and raw_date[10] == " " else None
@@ -228,8 +227,10 @@ def sync_team(team: dict, holidays: list[date]) -> dict:
             "match_date": str(match_date),
             "match_time": match_time_utc,
             "match_utc_offset": utc_offset,
-            "approval_deadline": str(approval),
-            "wc_deadline": str(wc),
+            "approval_deadline": str(deadlines["approval_deadline"]),
+            "wc_deadline": str(deadlines["wc_deadline"]),
+            "sales_deadline": str(deadlines["sales_deadline"]),
+            "partner_success_deadline": str(deadlines["partner_success_deadline"]),
             "season": team["season"],
             "source": "opta",
             "feed_event_id": m["game_id"],

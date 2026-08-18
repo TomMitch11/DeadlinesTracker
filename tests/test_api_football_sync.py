@@ -9,6 +9,7 @@ from api_football_sync import (
     sync_all_api_football_teams,
     sync_team,
 )
+from deadline_calc import calc_all_deadlines
 
 TEAM = {
     "id": "team-1",
@@ -92,6 +93,10 @@ def test_sync_team_upserts_home_fixtures_only():
         {"league": "253", "season": "2025", "team": 1234, "timezone": "UTC"},
         FAKE_CFG,
     )
+    fixture = mock_upsert.call_args[0][0]
+    expected = calc_all_deadlines(date.today() + timedelta(days=10), TEAM["deadline_days"], [])
+    assert fixture["sales_deadline"] == str(expected["sales_deadline"])
+    assert fixture["partner_success_deadline"] == str(expected["partner_success_deadline"])
 
 
 def test_sync_team_skips_past_fixture():

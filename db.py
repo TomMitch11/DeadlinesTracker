@@ -165,7 +165,8 @@ def update_fixture_manual(
     match_date: str,
     approval_deadline: str,
     wc_deadline: str,
-    sales_deadline: str | None,
+    sales_deadline: str,
+    partner_success_deadline: str,
     match_time: str | None = None,
     match_utc_offset: str | None = None,
     *,
@@ -177,11 +178,11 @@ def update_fixture_manual(
         "match_date": match_date,
         "approval_deadline": approval_deadline,
         "wc_deadline": wc_deadline,
+        "sales_deadline": sales_deadline,
+        "partner_success_deadline": partner_success_deadline,
         "match_time": match_time,
         "match_utc_offset": match_utc_offset,
     }
-    if sales_deadline:
-        payload["sales_deadline"] = sales_deadline
     cl.table("fixtures").update(payload).eq("id", fixture_id).execute()
 
 # ── Upload status writes ──────────────────────────────────────────────────────
@@ -303,9 +304,9 @@ def delete_holiday(date_str: str, *, client: Client | None = None) -> None:
     cl.table("holidays").delete().eq("date", date_str).execute()
 
 def recalculate_future_deadlines(*, client: Client | None = None) -> int:
-    """Recalculate approval_deadline and wc_deadline for all future fixtures.
+    """Recalculate approval/wc/sales/partner-success deadlines for all future fixtures.
     Called after holidays are added or removed. Returns count of updated fixtures."""
-    from deadline_calc import calc_approval_deadline, calc_wc_deadline
+    from deadline_calc import calc_all_deadlines
     import datetime
     cl = client or _client()
     today = str(datetime.date.today())
@@ -318,11 +319,12 @@ def recalculate_future_deadlines(*, client: Client | None = None) -> int:
     for f in future:
         deadline_days = deadline_by_team.get(f["team_id"], 3)
         match_date = datetime.date.fromisoformat(f["match_date"])
-        approval = calc_approval_deadline(match_date, deadline_days, holiday_dates)
-        wc = calc_wc_deadline(approval)
+        deadlines = calc_all_deadlines(match_date, deadline_days, holiday_dates)
         cl.table("fixtures").update({
-            "approval_deadline": str(approval),
-            "wc_deadline": str(wc),
+            "approval_deadline": str(deadlines["approval_deadline"]),
+            "wc_deadline": str(deadlines["wc_deadline"]),
+            "sales_deadline": str(deadlines["sales_deadline"]),
+            "partner_success_deadline": str(deadlines["partner_success_deadline"]),
         }).eq("id", f["id"]).execute()
         count += 1
     return count

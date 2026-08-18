@@ -11,6 +11,7 @@ from opta_sync import (
     sync_all_opta_teams,
     sync_team,
 )
+from deadline_calc import calc_all_deadlines
 
 TEAM = {
     "id": "team-1",
@@ -161,6 +162,10 @@ def test_sync_team_upserts_home_matches_only():
     assert stats["total_home"] == 1
     mock_upsert.assert_called_once()
     mock_statuses.assert_called_once_with("fid-1", "team-1")
+    fixture = mock_upsert.call_args[0][0]
+    expected = calc_all_deadlines(date.today() + timedelta(days=10), TEAM["deadline_days"], [])
+    assert fixture["sales_deadline"] == str(expected["sales_deadline"])
+    assert fixture["partner_success_deadline"] == str(expected["partner_success_deadline"])
 
 
 def test_sync_team_skips_past_match():

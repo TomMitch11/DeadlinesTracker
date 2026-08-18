@@ -84,14 +84,9 @@ def _show_detail(
             st.divider()
             with st.expander("✏️ Edit fixture"):
                 from datetime import date as _date
-                from deadline_calc import calc_approval_deadline, calc_wc_deadline
+                from deadline_calc import calc_all_deadlines
                 new_away = st.text_input("Away team", value=fixture["away_team"], key=f"eaway_{fixture['id']}")
                 new_date = st.date_input("Match date", value=_date.fromisoformat(fixture["match_date"]), key=f"edate_{fixture['id']}")
-                new_sales = st.date_input(
-                    "Sales deadline (optional)",
-                    value=_date.fromisoformat(fixture["sales_deadline"]) if fixture.get("sales_deadline") else None,
-                    key=f"esales_{fixture['id']}",
-                )
                 existing_time = fixture.get("match_time") or ""
                 new_time_str = st.text_input(
                     "Kickoff time, UTC (HH:MM, leave blank if unknown)",
@@ -101,17 +96,19 @@ def _show_detail(
                 holidays_raw = db.get_holidays()
                 holidays = [_date.fromisoformat(h["date"]) for h in holidays_raw]
                 team_data = db.get_team(fixture["team_id"])
-                new_approval = calc_approval_deadline(new_date, team_data["deadline_days"], holidays)
-                new_wc = calc_wc_deadline(new_approval)
-                st.caption(f"Approval deadline: **{new_approval}** | WC deadline: **{new_wc}**")
+                new_deadlines = calc_all_deadlines(new_date, team_data["deadline_days"], holidays)
+                st.caption(
+                    f"Approval deadline: **{new_deadlines['approval_deadline']}** | "
+                    f"WC deadline: **{new_deadlines['wc_deadline']}**"
+                )
                 if st.button("Save changes", key=f"esave_{fixture['id']}"):
                     import re
                     clean_time = new_time_str.strip()
                     match_time = clean_time if re.match(r"^\d{2}:\d{2}$", clean_time) else None
                     db.update_fixture_manual(
                         fixture["id"], new_away.strip(), str(new_date),
-                        str(new_approval), str(new_wc),
-                        str(new_sales) if new_sales else None,
+                        str(new_deadlines["approval_deadline"]), str(new_deadlines["wc_deadline"]),
+                        str(new_deadlines["sales_deadline"]), str(new_deadlines["partner_success_deadline"]),
                         match_time,
                     )
                     st.cache_data.clear()
@@ -120,7 +117,7 @@ def _show_detail(
 
 def _show_add_form(teams: list[dict], platforms: list[dict], statuses: list[dict]) -> None:
     from datetime import date as _date
-    from deadline_calc import calc_approval_deadline, calc_wc_deadline
+    from deadline_calc import calc_all_deadlines
     import db as _db
 
     with st.sidebar:
@@ -136,15 +133,14 @@ def _show_add_form(teams: list[dict], platforms: list[dict], statuses: list[dict
         match_time_str = st.text_input(
             "Kickoff time, UTC (HH:MM, leave blank if unknown)", key="add_time"
         )
-        sales_deadline = st.date_input(
-            "Sales deadline (optional)", value=None, key="add_sales"
-        )
 
         holidays_raw = _db.get_holidays()
         holidays = [_date.fromisoformat(h["date"]) for h in holidays_raw]
-        approval = calc_approval_deadline(match_date, team["deadline_days"], holidays)
-        wc = calc_wc_deadline(approval)
-        st.caption(f"Approval deadline: **{approval}** | WC deadline: **{wc}**")
+        deadlines = calc_all_deadlines(match_date, team["deadline_days"], holidays)
+        st.caption(
+            f"Approval deadline: **{deadlines['approval_deadline']}** | "
+            f"WC deadline: **{deadlines['wc_deadline']}**"
+        )
 
         col_save, col_cancel = st.columns(2)
         with col_save:
@@ -157,9 +153,10 @@ def _show_add_form(teams: list[dict], platforms: list[dict], statuses: list[dict
                     "away_team": away.strip(),
                     "match_date": str(match_date),
                     "match_time": _match_time,
-                    "approval_deadline": str(approval),
-                    "wc_deadline": str(wc),
-                    "sales_deadline": str(sales_deadline) if sales_deadline else None,
+                    "approval_deadline": str(deadlines["approval_deadline"]),
+                    "wc_deadline": str(deadlines["wc_deadline"]),
+                    "sales_deadline": str(deadlines["sales_deadline"]),
+                    "partner_success_deadline": str(deadlines["partner_success_deadline"]),
                     "season": team["season"],
                     "source": "manual",
                 }

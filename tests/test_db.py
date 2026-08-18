@@ -109,3 +109,32 @@ def test_delete_status_raises_if_system(mock_sb):
     chain.execute.return_value = MagicMock(data={"is_system": True})
     with pytest.raises(ValueError, match="system"):
         db.delete_status("stat-1", client=client)
+
+def test_update_fixture_manual_includes_partner_success_deadline(mock_sb):
+    client, chain = mock_sb
+    db.update_fixture_manual(
+        "fixture-1", "Chelsea", "2026-06-05",
+        "2026-06-02", "2026-06-01", "2026-05-29", "2026-06-01",
+        client=client,
+    )
+    payload = chain.update.call_args[0][0]
+    assert payload["sales_deadline"] == "2026-05-29"
+    assert payload["partner_success_deadline"] == "2026-06-01"
+
+def test_recalculate_future_deadlines_writes_all_four_fields(mock_sb):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[
+        {"id": "t1", "name": "Chelsea", "deadline_days": 3, "season": "2026"},
+    ])
+    # First call (get_holidays) returns no holidays, second (get_teams) returns the team above,
+    # third (future fixtures query) returns one fixture. Configure via side_effect in call order.
+    chain.execute.side_effect = [
+        MagicMock(data=[]),  # get_holidays
+        MagicMock(data=[{"id": "t1", "name": "Chelsea", "deadline_days": 3, "season": "2026"}]),  # get_teams
+        MagicMock(data=[{"id": "f1", "team_id": "t1", "match_date": "2026-06-05"}]),  # future fixtures
+        MagicMock(data=[]),  # the .update().execute() call
+    ]
+    db.recalculate_future_deadlines(client=client)
+    update_payload = chain.update.call_args[0][0]
+    assert update_payload["sales_deadline"] == "2026-05-29"
+    assert update_payload["partner_success_deadline"] == "2026-06-01"

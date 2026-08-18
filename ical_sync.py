@@ -3,7 +3,7 @@ import requests
 from datetime import date, datetime, timezone as _tz
 from icalendar import Calendar
 import db
-from deadline_calc import calc_approval_deadline, calc_wc_deadline
+from deadline_calc import calc_all_deadlines
 
 _BASE_TEAM = "https://ics.fixtur.es/v2/home/{}.ics"
 _BASE_LEAGUE = "https://ics.fixtur.es/v2/league/{}.ics"
@@ -93,8 +93,7 @@ def sync_team(team: dict, holidays: list[date]) -> tuple[dict, list[dict], list[
         if league_uids and uid and uid not in league_uids:
             cup_warning = f"This fixture may be a cup game — not found in the {team.get('competition', 'league')} feed."
 
-        approval = calc_approval_deadline(match_date, team["deadline_days"], holidays)
-        wc = calc_wc_deadline(approval)
+        deadlines = calc_all_deadlines(match_date, team["deadline_days"], holidays)
 
         # Check for existing fixture to detect reschedules
         existing = db.get_fixture_by_feed_event_id(game_id) if game_id else None
@@ -111,8 +110,10 @@ def sync_team(team: dict, holidays: list[date]) -> tuple[dict, list[dict], list[
             "match_date": str(match_date),
             "match_time": match_time,
             "match_utc_offset": "+00:00" if match_time else None,
-            "approval_deadline": str(approval),
-            "wc_deadline": str(wc),
+            "approval_deadline": str(deadlines["approval_deadline"]),
+            "wc_deadline": str(deadlines["wc_deadline"]),
+            "sales_deadline": str(deadlines["sales_deadline"]),
+            "partner_success_deadline": str(deadlines["partner_success_deadline"]),
             "season": team["season"],
             "source": "ical",
             "feed_event_id": game_id,
@@ -128,7 +129,7 @@ def sync_team(team: dict, holidays: list[date]) -> tuple[dict, list[dict], list[
             "match_date": str(match_date),
             "competition": team.get("competition") or "",
             "venue": team.get("default_venue") or "",
-            "approval_deadline": str(approval),
+            "approval_deadline": str(deadlines["approval_deadline"]),
             "cup_warning": cup_warning,
         }
         if is_new:
