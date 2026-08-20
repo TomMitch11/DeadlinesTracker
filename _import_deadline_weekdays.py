@@ -13,6 +13,10 @@ ALIASES = {
     "Atlanta United FC": "Atlanta United",
     "FC Copenhagen": "FCK",
     "London Stadium": "West Ham",
+    "New York Jets": "New York Jets LLC",
+    "Seattle Seahawks": "Seahawks (Seattle)",
+    "New Orleans Saints": "Saints (New Orleans)",
+    "PSV Women": "PSV Vrouwen",
 }
 
 
