@@ -21,7 +21,7 @@ def get_upcoming_fixtures(
         cl.table("fixtures")
         .select(
             "id, team_id, away_team, match_date, match_time, match_utc_offset, approval_deadline, "
-            "wc_deadline, sales_deadline, notes, season, source, venue, "
+            "wc_deadline, sales_deadline, partner_success_deadline, deadline_override, notes, season, source, venue, "
             "teams(id, name, competition), "
             "upload_statuses("
             "  platform_id, status_id, updated_by, updated_at, "

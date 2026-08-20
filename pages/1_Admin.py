@@ -82,7 +82,7 @@ with tab_teams:
                 choice = st.selectbox(
                     wd_label, _weekday_options,
                     index=_weekday_options.index(default_label),
-                    key=f"wd_{i}",
+                    key=f"wd_{editing.get('id', 'new')}_{i}",
                 )
                 if choice != "No rule":
                     selected_rules[i] = _WEEKDAY_LABELS.index(choice)
@@ -139,7 +139,8 @@ with tab_teams:
         comp_id_val = feed_competition_id.strip()
         if comp_val and comp_id_val:
             db.propagate_competition_name(comp_id_val, comp_val)
-        st.success(f"Team '{name}' saved.")
+        n = db.recalculate_future_deadlines()
+        st.success(f"Team '{name}' saved. Recalculated deadlines for {n} future fixtures.")
         st.rerun()
 
     if editing.get("id"):

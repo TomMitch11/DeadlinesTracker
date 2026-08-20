@@ -53,6 +53,15 @@ def test_get_upcoming_fixtures_with_team_filter(mock_sb):
     db.get_upcoming_fixtures(days=14, team_ids=["team-abc"], client=client)
     chain.in_.assert_called_with("team_id", ["team-abc"])
 
+def test_get_upcoming_fixtures_selects_deadline_override_and_partner_success_deadline(mock_sb):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[])
+    db.get_upcoming_fixtures(client=client)
+    select_call = chain.select.call_args_list[0]
+    selected = select_call.args[0]
+    assert "deadline_override" in selected
+    assert "partner_success_deadline" in selected
+
 def test_get_statuses_returns_list(mock_sb):
     client, chain = mock_sb
     chain.execute.return_value = MagicMock(data=[
