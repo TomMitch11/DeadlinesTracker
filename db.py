@@ -116,6 +116,40 @@ def get_team_platforms(team_id: str, *, client: Client | None = None) -> list[st
     rows = cl.table("team_platforms").select("platform_id").eq("team_id", team_id).execute().data
     return [r["platform_id"] for r in rows]
 
+# ── Team deadline weekdays ──────────────────────────────────────────────────
+
+def get_deadline_weekdays_by_team(*, client: Client | None = None) -> dict[str, dict[int, int]]:
+    cl = client or _client()
+    rows = cl.table("team_deadline_weekdays").select("team_id, match_weekday, deadline_weekday").execute().data
+    result: dict[str, dict[int, int]] = {}
+    for r in rows:
+        result.setdefault(r["team_id"], {})[r["match_weekday"]] = r["deadline_weekday"]
+    return result
+
+def get_team_deadline_weekdays(team_id: str, *, client: Client | None = None) -> dict[int, int]:
+    cl = client or _client()
+    rows = (
+        cl.table("team_deadline_weekdays")
+        .select("match_weekday, deadline_weekday")
+        .eq("team_id", team_id)
+        .execute()
+        .data
+    )
+    return {r["match_weekday"]: r["deadline_weekday"] for r in rows}
+
+def set_team_deadline_weekdays(team_id: str, rules: dict[int, int], *, client: Client | None = None) -> None:
+    cl = client or _client()
+    cl.table("team_deadline_weekdays").delete().eq("team_id", team_id).execute()
+    if rules:
+        cl.table("team_deadline_weekdays").insert([
+            {"team_id": team_id, "match_weekday": mw, "deadline_weekday": dw}
+            for mw, dw in rules.items()
+        ]).execute()
+
+def set_team_deadline_active(team_id: str, active: bool, *, client: Client | None = None) -> None:
+    cl = client or _client()
+    cl.table("teams").update({"deadline_active": active}).eq("id", team_id).execute()
+
 # ── Platforms ─────────────────────────────────────────────────────────────────
 
 def get_platforms(*, client: Client | None = None) -> list[dict]:
@@ -164,7 +198,7 @@ def get_fixture_by_feed_event_id(feed_event_id: str, *, client: Client | None = 
     cl = client or _client()
     result = (
         cl.table("fixtures")
-        .select("id, match_date, match_time, away_team")
+        .select("id, match_date, match_time, away_team, approval_deadline")
         .eq("feed_event_id", feed_event_id)
         .execute()
     )
@@ -213,6 +247,36 @@ def update_fixture_manual(
         "match_utc_offset": match_utc_offset,
     }
     cl.table("fixtures").update(payload).eq("id", fixture_id).execute()
+
+# ── Fixture deadline overrides ───────────────────────────────────────────────
+
+def get_overridden_feed_event_ids(*, client: Client | None = None) -> set[str]:
+    cl = client or _client()
+    rows = cl.table("fixtures").select("feed_event_id").eq("deadline_override", True).execute().data
+    return {r["feed_event_id"] for r in rows if r["feed_event_id"]}
+
+def set_fixture_deadline_override(fixture_id: str, approval_deadline: date, *, client: Client | None = None) -> None:
+    from deadline_calc import calc_wc_deadline
+    cl = client or _client()
+    cl.table("fixtures").update({
+        "approval_deadline": str(approval_deadline),
+        "wc_deadline": str(calc_wc_deadline(approval_deadline)),
+        "sales_deadline": str(approval_deadline - timedelta(days=4)),
+        "partner_success_deadline": str(approval_deadline - timedelta(days=1)),
+        "deadline_override": True,
+    }).eq("id", fixture_id).execute()
+
+def clear_fixture_deadline_override(fixture_id: str, *, client: Client | None = None) -> None:
+    from deadline_calc import calc_fixture_deadlines, deadlines_to_str
+    cl = client or _client()
+    fixture = cl.table("fixtures").select("id, team_id, match_date").eq("id", fixture_id).single().execute().data
+    team = get_team(fixture["team_id"], client=cl)
+    weekday_rules = get_team_deadline_weekdays(fixture["team_id"], client=cl)
+    holidays_raw = get_holidays(client=cl)
+    holiday_dates = [date.fromisoformat(h["date"]) for h in holidays_raw]
+    match_date = date.fromisoformat(fixture["match_date"])
+    deadlines = deadlines_to_str(calc_fixture_deadlines(match_date, team, weekday_rules, holiday_dates))
+    cl.table("fixtures").update({**deadlines, "deadline_override": False}).eq("id", fixture_id).execute()
 
 # ── Upload status writes ──────────────────────────────────────────────────────
 
@@ -333,27 +397,33 @@ def delete_holiday(date_str: str, *, client: Client | None = None) -> None:
     cl.table("holidays").delete().eq("date", date_str).execute()
 
 def recalculate_future_deadlines(*, client: Client | None = None) -> int:
-    """Recalculate approval/wc/sales/partner-success deadlines for all future fixtures.
-    Called after holidays are added or removed. Returns count of updated fixtures."""
-    from deadline_calc import calc_all_deadlines
+    """Recalculate approval/wc/sales/partner-success deadlines for all future fixtures
+    that aren't manually overridden. Called after holidays are added or removed, or
+    after the one-off weekday-rule import. Returns count of updated fixtures."""
+    from deadline_calc import calc_fixture_deadlines, deadlines_to_str
     import datetime
     cl = client or _client()
     today = str(datetime.date.today())
     holidays_raw = get_holidays(client=cl)
     holiday_dates = [datetime.date.fromisoformat(h["date"]) for h in holidays_raw]
     teams = get_teams(client=cl)
-    deadline_by_team = {t["id"]: t["deadline_days"] for t in teams}
-    future = cl.table("fixtures").select("id, team_id, match_date").gte("match_date", today).execute().data
+    team_by_id = {t["id"]: t for t in teams}
+    weekday_map = get_deadline_weekdays_by_team(client=cl)
+    future = (
+        cl.table("fixtures")
+        .select("id, team_id, match_date, deadline_override")
+        .gte("match_date", today)
+        .execute()
+        .data
+    )
     count = 0
     for f in future:
-        deadline_days = deadline_by_team.get(f["team_id"], 3)
+        if f.get("deadline_override"):
+            continue
+        team = team_by_id.get(f["team_id"], {"deadline_days": 3, "deadline_active": True})
+        weekday_rules = weekday_map.get(f["team_id"], {})
         match_date = datetime.date.fromisoformat(f["match_date"])
-        deadlines = calc_all_deadlines(match_date, deadline_days, holiday_dates)
-        cl.table("fixtures").update({
-            "approval_deadline": str(deadlines["approval_deadline"]),
-            "wc_deadline": str(deadlines["wc_deadline"]),
-            "sales_deadline": str(deadlines["sales_deadline"]),
-            "partner_success_deadline": str(deadlines["partner_success_deadline"]),
-        }).eq("id", f["id"]).execute()
+        deadlines = deadlines_to_str(calc_fixture_deadlines(match_date, team, weekday_rules, holiday_dates))
+        cl.table("fixtures").update(deadlines).eq("id", f["id"]).execute()
         count += 1
     return count

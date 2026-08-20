@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -123,15 +125,11 @@ def test_update_fixture_manual_includes_partner_success_deadline(mock_sb):
 
 def test_recalculate_future_deadlines_writes_all_four_fields(mock_sb):
     client, chain = mock_sb
-    chain.execute.return_value = MagicMock(data=[
-        {"id": "t1", "name": "Chelsea", "deadline_days": 3, "season": "2026"},
-    ])
-    # First call (get_holidays) returns no holidays, second (get_teams) returns the team above,
-    # third (future fixtures query) returns one fixture. Configure via side_effect in call order.
     chain.execute.side_effect = [
         MagicMock(data=[]),  # get_holidays
-        MagicMock(data=[{"id": "t1", "name": "Chelsea", "deadline_days": 3, "season": "2026"}]),  # get_teams
-        MagicMock(data=[{"id": "f1", "team_id": "t1", "match_date": "2026-06-05"}]),  # future fixtures
+        MagicMock(data=[{"id": "t1", "name": "Chelsea", "deadline_days": 3, "deadline_active": True, "season": "2026"}]),  # get_teams
+        MagicMock(data=[]),  # get_deadline_weekdays_by_team
+        MagicMock(data=[{"id": "f1", "team_id": "t1", "match_date": "2026-06-05", "deadline_override": False}]),  # future fixtures
         MagicMock(data=[]),  # the .update().execute() call
     ]
     db.recalculate_future_deadlines(client=client)
@@ -182,3 +180,104 @@ def test_get_partner_success_fixtures_attaches_platform_names(mock_sb, monkeypat
     monkeypatch.setattr(db, "get_team_platforms", lambda team_id, client=None: ["p1"])
     result = db.get_partner_success_fixtures(client=client)
     assert result[0]["platform_names"] == ["Big Screen"]
+
+def test_get_deadline_weekdays_by_team_groups_by_team(mock_sb):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[
+        {"team_id": "t1", "match_weekday": 5, "deadline_weekday": 2},
+        {"team_id": "t1", "match_weekday": 1, "deadline_weekday": 3},
+        {"team_id": "t2", "match_weekday": 0, "deadline_weekday": 2},
+    ])
+    result = db.get_deadline_weekdays_by_team(client=client)
+    assert result == {"t1": {5: 2, 1: 3}, "t2": {0: 2}}
+
+def test_get_team_deadline_weekdays_returns_map_for_one_team(mock_sb):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[{"match_weekday": 5, "deadline_weekday": 2}])
+    result = db.get_team_deadline_weekdays("t1", client=client)
+    assert result == {5: 2}
+
+def test_set_team_deadline_weekdays_deletes_then_inserts(mock_sb):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[])
+    db.set_team_deadline_weekdays("t1", {5: 2, 1: 3}, client=client)
+    chain.delete.assert_called_once()
+    inserted = chain.insert.call_args[0][0]
+    assert {"team_id": "t1", "match_weekday": 5, "deadline_weekday": 2} in inserted
+    assert {"team_id": "t1", "match_weekday": 1, "deadline_weekday": 3} in inserted
+
+def test_set_team_deadline_weekdays_empty_rules_skips_insert(mock_sb):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[])
+    db.set_team_deadline_weekdays("t1", {}, client=client)
+    chain.delete.assert_called_once()
+    chain.insert.assert_not_called()
+
+def test_set_team_deadline_active_updates_flag(mock_sb):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[])
+    db.set_team_deadline_active("t1", False, client=client)
+    payload = chain.update.call_args[0][0]
+    assert payload == {"deadline_active": False}
+
+def test_get_overridden_feed_event_ids_filters_null(mock_sb):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[
+        {"feed_event_id": "evt1"}, {"feed_event_id": None},
+    ])
+    result = db.get_overridden_feed_event_ids(client=client)
+    assert result == {"evt1"}
+
+def test_set_fixture_deadline_override_writes_derived_fields(mock_sb):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[])
+    db.set_fixture_deadline_override("fix-1", date(2026, 6, 3), client=client)
+    payload = chain.update.call_args[0][0]
+    assert payload["approval_deadline"] == "2026-06-03"
+    assert payload["wc_deadline"] == "2026-06-01"
+    assert payload["sales_deadline"] == "2026-05-30"
+    assert payload["partner_success_deadline"] == "2026-06-02"
+    assert payload["deadline_override"] is True
+
+def test_clear_fixture_deadline_override_recomputes_and_clears_flag(mock_sb):
+    client, chain = mock_sb
+    chain.execute.side_effect = [
+        MagicMock(data={"id": "fix-1", "team_id": "t1", "match_date": "2026-06-05"}),  # fixture select
+        MagicMock(data={"id": "t1", "deadline_days": 3, "deadline_active": True}),  # get_team
+        MagicMock(data=[]),  # get_team_deadline_weekdays
+        MagicMock(data=[]),  # get_holidays
+        MagicMock(data=[]),  # the update
+    ]
+    db.clear_fixture_deadline_override("fix-1", client=client)
+    payload = chain.update.call_args[0][0]
+    assert payload["deadline_override"] is False
+    # Friday 2026-06-05, flat 3-day fallback (no weekday rule configured) -> 2026-06-02
+    assert payload["approval_deadline"] == "2026-06-02"
+
+def test_recalculate_future_deadlines_skips_overridden_fixtures(mock_sb):
+    client, chain = mock_sb
+    chain.execute.side_effect = [
+        MagicMock(data=[]),  # get_holidays
+        MagicMock(data=[{"id": "t1", "name": "Chelsea", "deadline_days": 3, "deadline_active": True, "season": "2026"}]),  # get_teams
+        MagicMock(data=[]),  # get_deadline_weekdays_by_team
+        MagicMock(data=[{"id": "f1", "team_id": "t1", "match_date": "2026-06-05", "deadline_override": True}]),  # future fixtures
+    ]
+    count = db.recalculate_future_deadlines(client=client)
+    assert count == 0
+    chain.update.assert_not_called()
+
+def test_recalculate_future_deadlines_inactive_team_writes_none(mock_sb):
+    client, chain = mock_sb
+    chain.execute.side_effect = [
+        MagicMock(data=[]),  # get_holidays
+        MagicMock(data=[{"id": "t1", "name": "Chelsea", "deadline_days": 3, "deadline_active": False, "season": "2026"}]),  # get_teams
+        MagicMock(data=[]),  # get_deadline_weekdays_by_team
+        MagicMock(data=[{"id": "f1", "team_id": "t1", "match_date": "2026-06-05", "deadline_override": False}]),  # future fixtures
+        MagicMock(data=[]),  # update
+    ]
+    db.recalculate_future_deadlines(client=client)
+    update_payload = chain.update.call_args[0][0]
+    assert update_payload["approval_deadline"] is None
+    assert update_payload["wc_deadline"] is None
+    assert update_payload["sales_deadline"] is None
+    assert update_payload["partner_success_deadline"] is None
