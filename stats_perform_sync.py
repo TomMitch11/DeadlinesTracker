@@ -19,9 +19,16 @@ def _sp_sig(api_key: str, secret: str) -> dict:
     return {"api_key": api_key, "sig": sig, "accept": "json"}
 
 
-def _fetch_schedule(team_id: str, cfg: dict) -> dict:
+def _season_year(season: str) -> str:
+    """Extract the four-digit season year ('2026-27' -> '2026', '2026' -> '2026')."""
+    return season.split("-")[0]
+
+
+def _fetch_schedule(team_id: str, season_year: str, cfg: dict) -> dict:
+    """Omitting the season param returns only the single next/current event
+    instead of the full season — always pass it explicitly."""
     url = f"{_SP_BASE}/{_SPORT}/{_LEAGUE}/events/teams/{team_id}/"
-    params = _sp_sig(cfg["sp_api_key"], cfg["sp_api_secret"])
+    params = {**_sp_sig(cfg["sp_api_key"], cfg["sp_api_secret"]), "season": season_year}
     try:
         resp = requests.get(url, params=params, timeout=30)
         if resp.status_code == 404:
@@ -78,7 +85,7 @@ def sync_team(
     overridden_ids = overridden_ids or set()
 
     cfg = get_sp_config()
-    raw = _fetch_schedule(team["feed_team_id"], cfg)
+    raw = _fetch_schedule(team["feed_team_id"], _season_year(team["season"]), cfg)
 
     try:
         event_types = raw["apiResults"][0]["league"]["season"]["eventType"]

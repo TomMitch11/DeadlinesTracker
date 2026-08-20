@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from stats_perform_sync import sync_team, sync_all_stats_perform_teams, _parse_event_date
+from stats_perform_sync import sync_team, sync_all_stats_perform_teams, _parse_event_date, _season_year
 from deadline_calc import calc_fixture_deadlines, deadlines_to_str
 
 TEAM = {
@@ -36,6 +36,16 @@ def _event(event_id, home_id, away_id, home_loc, home_nick, away_loc, away_nick,
 
 def _raw(events):
     return {"apiResults": [{"league": {"season": {"eventType": [{"events": events}]}}}]}
+
+
+# ── _season_year ─────────────────────────────────────────────────────────────
+
+def test_season_year_hyphenated():
+    assert _season_year("2026-27") == "2026"
+
+
+def test_season_year_plain_year():
+    assert _season_year("2026") == "2026"
 
 
 # ── _parse_event_date ────────────────────────────────────────────────────────
@@ -105,6 +115,14 @@ def test_sync_team_upserts_home_games_only():
     expected = deadlines_to_str(calc_fixture_deadlines(future, TEAM, {}, []))
     assert fixture["sales_deadline"] == expected["sales_deadline"]
     assert fixture["partner_success_deadline"] == expected["partner_success_deadline"]
+
+
+def test_sync_team_passes_season_year_to_fetch_schedule():
+    with patch("stats_perform_sync.get_sp_config", return_value=FAKE_CFG), \
+         patch("stats_perform_sync._fetch_schedule", return_value={}) as mock_fetch:
+        sync_team({**TEAM, "season": "2026-27"}, [])
+
+    mock_fetch.assert_called_once_with("332", "2026", FAKE_CFG)
 
 
 def test_sync_team_skips_past_game():
