@@ -36,6 +36,7 @@ create table teams (
     id uuid primary key default uuid_generate_v4(),
     name text not null unique,
     deadline_days integer not null default 3,
+    deadline_active boolean not null default true,
     feed_source text not null default 'manual',
     feed_competition_id text,
     feed_team_id text,
@@ -63,6 +64,7 @@ create table fixtures (
     wc_deadline date,
     sales_deadline date,
     partner_success_deadline date,
+    deadline_override boolean not null default false,
     notes text not null default '',
     season text not null,
     source text not null default 'manual',
@@ -77,6 +79,15 @@ before update on fixtures
 for each row execute procedure set_updated_at();
 
 create index on fixtures(team_id);
+
+-- Per-team, per-match-weekday deadline rule (0=Mon..6=Sun). Missing row for a
+-- given team+weekday means "no confirmed rule" — falls back to teams.deadline_days.
+create table team_deadline_weekdays (
+    team_id uuid not null references teams(id) on delete cascade,
+    match_weekday integer not null check (match_weekday between 0 and 6),
+    deadline_weekday integer not null check (deadline_weekday between 0 and 6),
+    primary key (team_id, match_weekday)
+);
 
 -- Upload status per (fixture, platform) — only for active team platforms
 create table upload_statuses (
