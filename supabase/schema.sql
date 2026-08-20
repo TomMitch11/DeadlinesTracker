@@ -89,6 +89,8 @@ create table team_deadline_weekdays (
     primary key (team_id, match_weekday)
 );
 
+alter table team_deadline_weekdays enable row level security;
+
 -- Upload status per (fixture, platform) — only for active team platforms
 create table upload_statuses (
     fixture_id uuid not null references fixtures(id) on delete cascade,
