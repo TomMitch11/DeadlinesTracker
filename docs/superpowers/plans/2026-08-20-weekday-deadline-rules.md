@@ -1972,10 +1972,204 @@ git commit -m "feat: add one-off Team Deadline Matrix import script"
 
 ---
 
+### Task 7: One-off script — import per-fixture gospel deadlines as overrides for the current season
+
+**Added after the final whole-branch review** (2026-08-20): a real cross-check of every confirmed `team_deadline_weekdays` rule against the actual per-fixture gaps in the gospel sheet found that 49 of 114 checked team+weekday combos (43%) have a real historical gap **over 7 days** — often a highly consistent one (e.g. Bristol City's Sat→Fri deadline is always 8 days, not 1; Denver Broncos' Mon→Mon is always 14 days). `calc_approval_deadline_from_weekday` always picks the *nearest* prior occurrence of the deadline weekday (max 7 days back), so for these combos it computes a deadline exactly one extra week too **late** — the dangerous direction. This is a real flaw in the weekday-only rule (a weekday alone can't distinguish "last Friday" from "the Friday a week earlier"), not a theoretical concern.
+
+Tom's decision: "The app should match the spreadsheet for this year." Rather than redesigning the weekday-rule schema/calc (Tasks 1-3/5/6, already reviewed and approved) to add a day-count/weeks-back dimension, this task uses the already-built, already-tested manual override mechanism (Task 3's `db.set_fixture_deadline_override`) as the delivery vehicle: for every fixture the app already has that also appears in the gospel sheet (`MASTER_Deadline Sheet_2026.xlsx`, `2026-27` sheet — matched by team name, resolved through the same `ALIASES` map as Task 6, and match date), set that fixture's real, human-verified approval deadline as an override. This makes every current-season fixture's deadline exactly match the spreadsheet regardless of whether its weekday-rule combo happens to be one of the 49 wrong ones — and since it's a real override, it's permanently protected from being recomputed by any future sync or by `recalculate_future_deadlines`.
+
+The weekday-rule feature (Tasks 1-6) is not being removed or reworked — it remains the best-available fallback for any fixture the gospel sheet doesn't cover (a new fixture added after this import runs, a fixture for a future season, etc.). It is still known to be wrong for ~43% of confirmed combos in that fallback role; this is a documented, accepted limitation for now, not a resolved one — flagged again in Manual Verification below.
+
+**Files:**
+- Create: `_import_gospel_deadlines.py`
+- Test: `tests/test_import_gospel_deadlines.py`
+
+**Interfaces:**
+- Consumes: `db.get_teams`, `db.get_upcoming_fixtures(days=None)`, `db.set_fixture_deadline_override` (Task 3); `_import_deadline_weekdays.ALIASES` (Task 6, reused rather than duplicated).
+- Produces: `match_gospel_rows(gospel_rows, app_fixtures) -> list[tuple[str, date]]` (pure, tested — returns `(fixture_id, approval_deadline)` pairs) and a `main()` that performs the real import (not unit-tested, same convention as `_import_teams.py`/`_import_deadline_weekdays.py`).
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `tests/test_import_gospel_deadlines.py`:
+
+```python
+from datetime import date
+from _import_gospel_deadlines import match_gospel_rows
+
+
+def test_match_gospel_rows_matches_by_resolved_team_name_and_date():
+    gospel_rows = [
+        (date(2026, 8, 22), "London Stadium", "Arsenal", date(2026, 8, 14)),
+    ]
+    app_fixtures = [
+        {"id": "fix-1", "team_id": "t1", "match_date": "2026-08-22"},
+    ]
+    teams_by_id = {"t1": "West Ham"}
+    result = match_gospel_rows(gospel_rows, app_fixtures, teams_by_id)
+    assert result == [("fix-1", date(2026, 8, 14))]
+
+
+def test_match_gospel_rows_skips_when_no_fixture_matches_date():
+    gospel_rows = [
+        (date(2026, 8, 22), "Aston Villa", "Arsenal", date(2026, 8, 19)),
+    ]
+    app_fixtures = [
+        {"id": "fix-1", "team_id": "t1", "match_date": "2026-08-29"},
+    ]
+    teams_by_id = {"t1": "Aston Villa"}
+    result = match_gospel_rows(gospel_rows, app_fixtures, teams_by_id)
+    assert result == []
+
+
+def test_match_gospel_rows_skips_when_team_not_in_app():
+    gospel_rows = [
+        (date(2026, 8, 22), "Some Untracked Team", "Arsenal", date(2026, 8, 19)),
+    ]
+    app_fixtures = [
+        {"id": "fix-1", "team_id": "t1", "match_date": "2026-08-22"},
+    ]
+    teams_by_id = {"t1": "Aston Villa"}
+    result = match_gospel_rows(gospel_rows, app_fixtures, teams_by_id)
+    assert result == []
+
+
+def test_match_gospel_rows_skips_row_with_no_approval_deadline():
+    gospel_rows = [
+        (date(2026, 8, 22), "Aston Villa", "Arsenal", None),
+    ]
+    app_fixtures = [
+        {"id": "fix-1", "team_id": "t1", "match_date": "2026-08-22"},
+    ]
+    teams_by_id = {"t1": "Aston Villa"}
+    result = match_gospel_rows(gospel_rows, app_fixtures, teams_by_id)
+    assert result == []
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `cd DeadlinesTracker && python3 -m pytest tests/test_import_gospel_deadlines.py -v`
+Expected: FAIL — `ModuleNotFoundError: No module named '_import_gospel_deadlines'`
+
+- [ ] **Step 3: Write the script**
+
+Create `_import_gospel_deadlines.py`:
+
+```python
+"""One-off script to make every current-season fixture's deadline match the
+real, human-verified value in MASTER_Deadline Sheet_2026.xlsx, via the
+manual-override mechanism, rather than trusting the weekday-rule calc (which
+is known wrong for ~43% of confirmed team+weekday combos — see Task 7 in
+docs/superpowers/plans/2026-08-20-weekday-deadline-rules.md).
+Run once: python _import_gospel_deadlines.py"""
+from datetime import date, datetime
+
+from _import_deadline_weekdays import ALIASES
+
+
+def _to_date(value) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value[:10])
+        except ValueError:
+            return None
+    return None
+
+
+def match_gospel_rows(
+    gospel_rows: list[tuple],
+    app_fixtures: list[dict],
+    teams_by_id: dict[str, str],
+) -> list[tuple[str, date]]:
+    """gospel_rows: (match_date, team_home, team_away, approval_deadline) tuples
+    from the gospel sheet. app_fixtures: {id, team_id, match_date} dicts already
+    in the app. teams_by_id: {team_id: team_name} for every app team. Returns
+    (fixture_id, approval_deadline) pairs for every gospel row that resolves to
+    a real app team (through ALIASES) and matches an app fixture on the same
+    match date."""
+    fixtures_by_key: dict[tuple[str, date], str] = {}
+    for f in app_fixtures:
+        match_date = _to_date(f["match_date"])
+        if match_date is None:
+            continue
+        team_name = teams_by_id.get(f["team_id"])
+        if team_name is None:
+            continue
+        fixtures_by_key[(team_name, match_date)] = f["id"]
+
+    results: list[tuple[str, date]] = []
+    for match_date, team_home, _team_away, approval_deadline in gospel_rows:
+        md = _to_date(match_date)
+        ad = _to_date(approval_deadline)
+        if md is None or ad is None:
+            continue
+        team_name = ALIASES.get(team_home, team_home)
+        fixture_id = fixtures_by_key.get((team_name, md))
+        if fixture_id is not None:
+            results.append((fixture_id, ad))
+    return results
+
+
+def main() -> None:
+    import openpyxl
+    import db
+
+    wb = openpyxl.load_workbook("MASTER_Deadline Sheet_2026.xlsx", data_only=True)
+    ws = wb["2026-27"]
+    gospel_rows = [
+        (row[0], row[1], row[2], row[3])
+        for row in ws.iter_rows(min_row=2, values_only=True)
+        if row[0] and row[1]
+    ]
+
+    teams = db.get_teams()
+    teams_by_id = {t["id"]: t["name"] for t in teams}
+    app_fixtures = db.get_upcoming_fixtures(days=None)
+
+    matches = match_gospel_rows(gospel_rows, app_fixtures, teams_by_id)
+    for fixture_id, approval_deadline in matches:
+        db.set_fixture_deadline_override(fixture_id, approval_deadline)
+
+    print(
+        f"\n{len(matches)} fixture(s) overridden to match the gospel sheet "
+        f"out of {len(gospel_rows)} gospel row(s) and {len(app_fixtures)} app fixture(s)."
+    )
+
+
+if __name__ == "__main__":
+    main()
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `cd DeadlinesTracker && python3 -m pytest tests/test_import_gospel_deadlines.py -v`
+Expected: all PASS
+
+- [ ] **Step 5: Run the full suite to confirm no regressions**
+
+Run: `cd DeadlinesTracker && python3 -m pytest tests/ -q`
+Expected: all pass
+
+- [ ] **Step 6: Commit**
+
+```bash
+cd DeadlinesTracker
+git add _import_gospel_deadlines.py tests/test_import_gospel_deadlines.py
+git commit -m "feat: add one-off script to override fixtures with gospel-sheet deadlines"
+```
+
+---
+
 ## Manual verification (after all tasks, and after Task 1 Step 6 has been applied to the live database)
 
 - [ ] Confirm the live database migration from Task 1 Step 6 has been applied (query `select deadline_active from teams limit 1;` and `select deadline_override from fixtures limit 1;` in the Supabase SQL editor — both should succeed with no error).
-- [ ] Run `python _import_deadline_weekdays.py` from the `DeadlinesTracker` directory (with `SUPABASE_URL`/`SUPABASE_SERVICE_KEY` set, as usual) against the live database. Confirm the printed summary shows Aston Villa, West Ham, and the other Opta teams getting weekday rules, and the 6 expired teams (Leyton Orient, Peterborough Utd, Sheffield United, Swansea City, Wycombe Wanderers, FC Dallas) marked inactive.
+- [ ] Run `python _import_deadline_weekdays.py` from the `DeadlinesTracker` directory (with `SUPABASE_URL`/`SUPABASE_SERVICE_KEY` set, as usual) against the live database. Confirm the printed summary shows Aston Villa, West Ham, and the other Opta teams getting weekday rules. **Correction from the plan's original draft:** the real spreadsheet has 9 expired/no-active-deal teams, not 6 — FC Dallas, Houston Dynamo, Leeds United, Leyton Orient, Peterborough Utd, Reading FC, Sheffield United, Swansea City, Wycombe Wanderers (confirmed with Tom on 2026-08-20 that all 9 are genuinely expired). Confirm all 9 are marked inactive.
+- [ ] Run `python _import_gospel_deadlines.py` from the `DeadlinesTracker` directory against the live database (after the weekday-rule import above, so the override correctly takes precedence). Confirm the printed summary's overridden count is close to the ~544 existing fixtures (allowing for any gospel rows that don't resolve to a tracked team, or app fixtures the gospel sheet doesn't cover — read the printed count, don't assume it's exactly 544).
+- [ ] In the Supabase SQL editor, spot-check a Bristol City or Denver Broncos fixture (two of the teams confirmed to have a >7-day real gap that the weekday-rule calc alone would get wrong) and confirm `deadline_override = true` and `approval_deadline` matches the gospel sheet exactly, not the weekday-rule-computed value.
+- [ ] **Known accepted limitation, not yet resolved:** the weekday-rule fallback (Tasks 1-6) is still wrong for ~43% of confirmed team+weekday combos when it's the only data available (any fixture the gospel-sheet import in this task doesn't cover — e.g. one added after this import runs, or next season's fixtures once this year's gospel sheet is out of date). Revisit with Tom whether that needs the "weeks back"/day-offset redesign discussed during this review before relying on the weekday-rule fallback again for a new season.
 - [ ] In the Supabase SQL editor, spot-check one row: `select match_weekday, deadline_weekday from team_deadline_weekdays td join teams t on t.id = td.team_id where t.name = 'West Ham';` — expect `5 -> 2` (Sat match -> Wed deadline) and `1 -> 3` (Tue match -> Thu deadline) among the results.
 - [ ] Run `db.recalculate_future_deadlines()` once (via a one-off `python -c "import db; print(db.recalculate_future_deadlines())"` from the `DeadlinesTracker` directory, or by adding/removing a holiday in the Admin page's Holidays tab, which already triggers it) to backfill all 544 existing fixtures under the new logic. Note the returned count.
 - [ ] In the Supabase SQL editor, confirm the 6 expired teams' fixtures now have `approval_deadline is null`: `select count(*) from fixtures f join teams t on t.id = f.team_id where t.deadline_active = false and f.approval_deadline is not null;` — expect `0`.
