@@ -63,10 +63,29 @@ with tab_teams:
 
     with st.form("team_form"):
         name = st.text_input("Team name", value=editing.get("name", ""))
+        deadline_active = st.checkbox("Active deal", value=editing.get("deadline_active", True))
         deadline_days = st.number_input(
-            "Deadline days (working days before match)", min_value=1, max_value=14,
+            "Fallback (days before match, used when no weekday rule is set below)",
+            min_value=1, max_value=21,
             value=editing.get("deadline_days", 3)
         )
+        st.markdown("**Deadline weekday by match weekday** (leave 'No rule' to use the fallback above)")
+        _WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        _weekday_options = ["No rule"] + _WEEKDAY_LABELS
+        existing_rules = db.get_team_deadline_weekdays(editing["id"]) if editing.get("id") else {}
+        weekday_cols = st.columns(7)
+        selected_rules: dict[int, int] = {}
+        for i, wd_label in enumerate(_WEEKDAY_LABELS):
+            with weekday_cols[i]:
+                current_rule = existing_rules.get(i)
+                default_label = _WEEKDAY_LABELS[current_rule] if current_rule is not None else "No rule"
+                choice = st.selectbox(
+                    wd_label, _weekday_options,
+                    index=_weekday_options.index(default_label),
+                    key=f"wd_{i}",
+                )
+                if choice != "No rule":
+                    selected_rules[i] = _WEEKDAY_LABELS.index(choice)
         _feed_sources = ["manual", "opta", "statsperform", "api_football", "ical"]
         feed_source = st.selectbox(
             "Feed source",
@@ -103,6 +122,7 @@ with tab_teams:
             "name": name.strip(),
             "competition": competition.strip() or None,
             "deadline_days": int(deadline_days),
+            "deadline_active": deadline_active,
             "feed_source": feed_source,
             "feed_competition_id": feed_competition_id.strip() or None,
             "feed_team_id": feed_team_id.strip() or None,
@@ -112,6 +132,7 @@ with tab_teams:
         if editing.get("id"):
             payload["id"] = editing["id"]
         team_id = db.upsert_team(payload)
+        db.set_team_deadline_weekdays(team_id, selected_rules)
         db.set_team_platforms(team_id, selected_platforms)
         # Propagate competition name to all teams in the same feed competition
         comp_val = competition.strip()
