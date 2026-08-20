@@ -26,21 +26,20 @@ Sheet_2026.xlsx`)
 
 - **Confirmed rule available**: most Opta teams have a gospel-confirmed
   deadline weekday for most match weekdays.
-- **West Ham — no data anywhere.** Zero rows in the gospel sheet, no row in
-  the matrix, despite being the most active Opta team (24 fixtures). Same
-  situation as the NBA teams before: there is nothing to derive a rule
-  from. **Not guessing a number for this — West Ham stays on the old flat
-  `deadline_days` fallback until Tom gets the real rule from whoever owns
-  that account.**
+- **West Ham is not actually missing — it's filed under "London Stadium".**
+  Eleven's contract is with the stadium, not the club, so both the gospel
+  sheet and the matrix record these fixtures under "London Stadium" (23
+  gospel rows, matrix row present: Sat→Wed dominant at 15/16, Tue→Thu 4/4,
+  etc. — a clean, confirmed pattern, no gap at all). Just a 5th alias.
 - **Partial gaps**: some teams have confirmed data for most but not all 7
   match weekdays (e.g. Huddersfield Town has no Wednesday data). Those
-  specific team+weekday combinations also stay on the flat fallback rather
+  specific team+weekday combinations stay on the flat fallback rather
   than interpolating.
 - **Name aliases** between `teams.name` and the matrix's `Team` column
   (matrix name → app name): "Millwall FC" → Millwall, "Houston Dynamo" →
-  Houston, "Atlanta United FC" → Atlanta United, "FC Copenhagen" → FCK.
-  Resolved via an explicit alias map in the migration script, not fuzzy
-  matching.
+  Houston, "Atlanta United FC" → Atlanta United, "FC Copenhagen" → FCK,
+  "London Stadium" → West Ham. Resolved via an explicit alias map in the
+  migration script, not fuzzy matching.
 - **Expired teams**: Leyton Orient, Peterborough Utd, Sheffield United,
   Swansea City, Wycombe Wanderers, FC Dallas are flagged "no active deal"
   in the matrix (a decision Tom already made when building it). Their 123
@@ -104,7 +103,7 @@ picks per-fixture:
    use `calc_approval_deadline_from_weekday`.
 3. Else: fall back to the existing `calc_approval_deadline` (flat
    `deadline_days`, business-day walk, holiday-aware) — today's behavior,
-   unchanged, for West Ham and any partial-gap weekday.
+   unchanged, for the remaining partial-gap weekdays.
 
 `sales_deadline`/`partner_success_deadline` stay calendar-day offsets off
 whichever `approval_deadline` resulted (`-4`/`-1` days), same as today —
@@ -126,35 +125,88 @@ grid (Mon-Sun), each a dropdown of weekday names plus a "no data" option,
 pre-filled from `team_deadline_weekdays`. Saving writes/deletes rows in
 that table for the edited team. The old `deadline_days` number input stays
 alongside as the explicit fallback value, relabelled "Fallback (days
-before match, used when no weekday rule is set)" — still needed for West
-Ham and partial gaps. Add an "Active deal" checkbox bound to
-`teams.deadline_active`.
+before match, used when no weekday rule is set)" — still needed for the
+remaining partial gaps (e.g. Huddersfield's missing Wednesday). Add an
+"Active deal" checkbox bound to `teams.deadline_active`.
 
-### 5. Migration + one-time backfill (manual steps, not app code)
+### 5. Manual per-fixture deadline override
 
-1. `alter table` for `team_deadline_weekdays` and `teams.deadline_active`.
+Since no holiday-shifting is built into the weekday-rule calc (see above),
+Tom needs a way to hand-correct a specific fixture when a holiday (or any
+other one-off reason) genuinely does move its deadline — a manual override
+per fixture, not a general holiday-shifting algorithm.
+
+New column: `fixtures.deadline_override boolean not null default false`.
+When `true`, the fixture's `approval_deadline` (and the three fields
+derived from it) are user-set and must never be touched by any automated
+computation — not the next sync, not `recalculate_future_deadlines`.
+
+- `db.set_fixture_deadline_override(fixture_id, approval_deadline: date) ->
+  None`: writes `approval_deadline`, re-derives `wc_deadline` (via the
+  existing `calc_wc_deadline`), `sales_deadline` (`-4` days),
+  `partner_success_deadline` (`-1` day) from that date — same downstream
+  math as the automated path, only the approval deadline itself is
+  hand-set — and sets `deadline_override = true`.
+- `db.clear_fixture_deadline_override(fixture_id) -> None`: sets
+  `deadline_override = false` and immediately recomputes the fixture's
+  deadlines under the normal team rule (weekday rule or fallback), so it
+  snaps back to computed behaviour rather than leaving a stale manual
+  value in place.
+- UI: a new "📅 Deadline override" control in `app.py`'s `_show_detail`
+  sidebar, shown for **every** fixture regardless of `source` (today's
+  edit form is gated to `source == "manual"` only, which would miss almost
+  all of the 544 real fixtures this is actually needed for — Opta/iCal/
+  API-Football sourced). Shows the current approval deadline, a date
+  picker, and Override/Clear buttons calling the two functions above.
+- `opta_sync.py`, `ical_sync.py`, `api_football_sync.py`: each already
+  looks up (or will look up, per item 3) existing fixtures by
+  `feed_event_id` before upserting. When the existing row has
+  `deadline_override = true`, the four deadline keys are omitted from the
+  upsert payload entirely (Supabase/PostgREST upsert only touches columns
+  present in the payload, so omitting them leaves the manually-set values
+  untouched) rather than being recomputed and overwritten.
+- `db.recalculate_future_deadlines`: skips any fixture where
+  `deadline_override = true` — it already reads `id, team_id, match_date`
+  per fixture; add `deadline_override` to that select and filter it out
+  before recomputing.
+
+### 6. Migration + one-time backfill (manual steps, not app code)
+
+1. `alter table` for `team_deadline_weekdays`, `teams.deadline_active`, and
+   `fixtures.deadline_override`.
 2. One-off script (not part of the app, run once): parses
-   `Team Deadline Matrix.xlsx`, resolves the 4 known aliases, skips
+   `Team Deadline Matrix.xlsx`, resolves the 5 known aliases, skips
    "Expired" rows and cells with no data (`'�'`/empty), inserts the
    remaining team+weekday→weekday rows. Sets `deadline_active = false` for
    the 6 expired teams.
-3. Deploy the updated `deadline_calc.py`/5 call sites/Admin page.
+3. Deploy the updated `deadline_calc.py`/5 call sites/Admin page/override
+   controls.
 4. Run `db.recalculate_future_deadlines()` (already exists, extended per
-   above) once to backfill all 544 existing fixtures under the new logic.
-5. Report back which teams/weekdays are still on the flat fallback (West
-   Ham entirely, plus any partial gaps) so Tom knows what's still
-   unresolved — not silently indistinguishable from a confirmed rule.
+   above) once to backfill all 544 existing fixtures under the new logic
+   (fixtures with `deadline_override = true` — none yet, at this point —
+   would be skipped).
+5. Report back which teams/weekdays are still on the flat fallback (the
+   remaining partial gaps) so Tom knows what's still unresolved — not
+   silently indistinguishable from a confirmed rule.
 
 ## Error handling
 
 - Migration script: if a matrix row's weekday cell text doesn't parse to a
   recognized weekday name (typo, unexpected format), skip that cell and
-  log it rather than guessing — same "don't guess" stance as the West Ham
-  gap.
+  log it rather than guessing.
 - `calc_all_deadlines`: if `team_deadline_weekdays` lookup is missing
   entirely for a team (e.g. brand new team added after migration, no
   weekday data yet), that's just case 3 (flat fallback) — no special
   handling needed, it's the existing default path.
+- Sync scripts: if an incoming feed reschedules a fixture that has
+  `deadline_override = true` to a new `match_date`, the override's date
+  still gets kept as-is (the deadline fields stay excluded from the
+  upsert) — a rescheduled match invalidates a manually-set deadline just
+  as much as a computed one, but silently guessing a new value would be
+  worse than leaving the old one for Tom to notice and re-set. The
+  existing reschedule-notification path (`ical_sync.py`'s
+  `rescheduled_fixtures` list) already surfaces the date change to Tom by
+  email regardless.
 
 ## Testing
 
@@ -167,4 +219,10 @@ rule present; weekday rule absent → flat fallback unchanged from today's
 behavior). The migration script gets a test asserting it never inserts a
 row for an "Expired" team or an unparseable cell. `db.recalculate_future_deadlines`'s
 existing test (`test_recalculate_future_deadlines_writes_all_four_fields`)
-gets extended to cover an inactive team producing `None`s.
+gets extended to cover an inactive team producing `None`s, plus a new case
+asserting an overridden fixture is skipped entirely (its deadline fields
+untouched). Each sync module's test file gets a case asserting that when
+the existing fixture has `deadline_override = true`, the upsert payload
+omits all four deadline keys. `set_fixture_deadline_override`/
+`clear_fixture_deadline_override` get direct unit tests for the
+derived-field math and the flag flip in both directions.
