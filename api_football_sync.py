@@ -3,7 +3,7 @@ import requests
 from datetime import date, datetime, timezone as _tz
 from config import get_api_football_config
 import db
-from deadline_calc import calc_all_deadlines
+from deadline_calc import calc_fixture_deadlines, deadlines_to_str
 
 _BASE = "https://v3.football.api-sports.io"
 
@@ -51,9 +51,17 @@ def _parse_fixture_date(date_str: str) -> tuple[date, str | None, str | None]:
     return match_date, match_time, utc_offset
 
 
-def sync_team(team: dict, holidays: list[date]) -> dict:
+def sync_team(
+    team: dict,
+    holidays: list[date],
+    weekday_rules: dict[int, int] | None = None,
+    overridden_ids: set[str] | None = None,
+) -> dict:
     if not team.get("feed_team_id"):
         raise ValueError(f"No feed_team_id (API-Football team ID) set for team '{team['name']}'")
+
+    weekday_rules = weekday_rules or {}
+    overridden_ids = overridden_ids or set()
 
     cfg = get_api_football_config()
     season_year = _season_year(team["season"])
@@ -86,7 +94,11 @@ def sync_team(team: dict, holidays: list[date]) -> dict:
         away_name = item["teams"]["away"]["name"]
         game_id = f"apif_{item['fixture']['id']}"
 
-        deadlines = calc_all_deadlines(match_date, team["deadline_days"], holidays)
+        if game_id in overridden_ids:
+            deadline_fields = {}
+        else:
+            deadlines = calc_fixture_deadlines(match_date, team, weekday_rules, holidays)
+            deadline_fields = deadlines_to_str(deadlines)
 
         fixture = {
             "team_id": team["id"],
@@ -94,10 +106,7 @@ def sync_team(team: dict, holidays: list[date]) -> dict:
             "match_date": str(match_date),
             "match_time": match_time,
             "match_utc_offset": utc_offset,
-            "approval_deadline": str(deadlines["approval_deadline"]),
-            "wc_deadline": str(deadlines["wc_deadline"]),
-            "sales_deadline": str(deadlines["sales_deadline"]),
-            "partner_success_deadline": str(deadlines["partner_success_deadline"]),
+            **deadline_fields,
             "season": team["season"],
             "source": "api_football",
             "feed_event_id": game_id,
@@ -118,11 +127,13 @@ def sync_team(team: dict, holidays: list[date]) -> dict:
 def sync_all_api_football_teams() -> dict[str, dict]:
     holidays_raw = db.get_holidays()
     holidays = [date.fromisoformat(h["date"]) for h in holidays_raw]
+    weekday_map = db.get_deadline_weekdays_by_team()
+    overridden_ids = db.get_overridden_feed_event_ids()
     teams = [t for t in db.get_teams() if t.get("feed_source") == "api_football"]
     results: dict[str, dict] = {}
     for team in teams:
         try:
-            results[team["name"]] = sync_team(team, holidays)
+            results[team["name"]] = sync_team(team, holidays, weekday_map.get(team["id"], {}), overridden_ids)
         except (ConnectionError, PermissionError, ValueError) as e:
             results[team["name"]] = {"error": str(e)}
     return results

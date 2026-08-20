@@ -45,6 +45,31 @@ def _show_detail(
 
         st.divider()
 
+        st.markdown("**📅 Deadline override**")
+        current_approval = fixture.get("approval_deadline")
+        if fixture.get("deadline_override"):
+            st.caption(f"Manually overridden. Approval deadline: **{current_approval}**")
+        else:
+            st.caption(f"Computed. Approval deadline: **{current_approval}**")
+        override_date = st.date_input(
+            "Approval deadline" if fixture.get("deadline_override") else "Override approval deadline",
+            value=_date.fromisoformat(current_approval) if current_approval else _date.today(),
+            key=f"override_{fixture['id']}",
+        )
+        col_set, col_clear = st.columns(2)
+        with col_set:
+            if st.button("Set override", key=f"override_set_{fixture['id']}"):
+                db.set_fixture_deadline_override(fixture["id"], override_date)
+                st.cache_data.clear()
+                st.rerun()
+        with col_clear:
+            if fixture.get("deadline_override") and st.button("Clear override", key=f"override_clear_{fixture['id']}"):
+                db.clear_fixture_deadline_override(fixture["id"])
+                st.cache_data.clear()
+                st.rerun()
+
+        st.divider()
+
         st.markdown("**Upload statuses**")
         status_map = {us["platform_id"]: us for us in fixture.get("upload_statuses", [])}
         status_options = {s["label"]: s["id"] for s in statuses}
@@ -84,7 +109,7 @@ def _show_detail(
             st.divider()
             with st.expander("✏️ Edit fixture"):
                 from datetime import date as _date
-                from deadline_calc import calc_all_deadlines
+                from deadline_calc import calc_fixture_deadlines, deadlines_to_str
                 new_away = st.text_input("Away team", value=fixture["away_team"], key=f"eaway_{fixture['id']}")
                 new_date = st.date_input("Match date", value=_date.fromisoformat(fixture["match_date"]), key=f"edate_{fixture['id']}")
                 existing_time = fixture.get("match_time") or ""
@@ -96,7 +121,8 @@ def _show_detail(
                 holidays_raw = db.get_holidays()
                 holidays = [_date.fromisoformat(h["date"]) for h in holidays_raw]
                 team_data = db.get_team(fixture["team_id"])
-                new_deadlines = calc_all_deadlines(new_date, team_data["deadline_days"], holidays)
+                weekday_rules = db.get_team_deadline_weekdays(fixture["team_id"])
+                new_deadlines = deadlines_to_str(calc_fixture_deadlines(new_date, team_data, weekday_rules, holidays))
                 st.caption(
                     f"Approval deadline: **{new_deadlines['approval_deadline']}** | "
                     f"WC deadline: **{new_deadlines['wc_deadline']}**"
@@ -107,8 +133,8 @@ def _show_detail(
                     match_time = clean_time if re.match(r"^\d{2}:\d{2}$", clean_time) else None
                     db.update_fixture_manual(
                         fixture["id"], new_away.strip(), str(new_date),
-                        str(new_deadlines["approval_deadline"]), str(new_deadlines["wc_deadline"]),
-                        str(new_deadlines["sales_deadline"]), str(new_deadlines["partner_success_deadline"]),
+                        new_deadlines["approval_deadline"], new_deadlines["wc_deadline"],
+                        new_deadlines["sales_deadline"], new_deadlines["partner_success_deadline"],
                         match_time,
                     )
                     st.cache_data.clear()
@@ -117,7 +143,7 @@ def _show_detail(
 
 def _show_add_form(teams: list[dict], platforms: list[dict], statuses: list[dict]) -> None:
     from datetime import date as _date
-    from deadline_calc import calc_all_deadlines
+    from deadline_calc import calc_fixture_deadlines, deadlines_to_str
     import db as _db
 
     with st.sidebar:
@@ -136,7 +162,8 @@ def _show_add_form(teams: list[dict], platforms: list[dict], statuses: list[dict
 
         holidays_raw = _db.get_holidays()
         holidays = [_date.fromisoformat(h["date"]) for h in holidays_raw]
-        deadlines = calc_all_deadlines(match_date, team["deadline_days"], holidays)
+        weekday_rules = _db.get_team_deadline_weekdays(team["id"])
+        deadlines = deadlines_to_str(calc_fixture_deadlines(match_date, team, weekday_rules, holidays))
         st.caption(
             f"Approval deadline: **{deadlines['approval_deadline']}** | "
             f"WC deadline: **{deadlines['wc_deadline']}**"
@@ -153,10 +180,10 @@ def _show_add_form(teams: list[dict], platforms: list[dict], statuses: list[dict
                     "away_team": away.strip(),
                     "match_date": str(match_date),
                     "match_time": _match_time,
-                    "approval_deadline": str(deadlines["approval_deadline"]),
-                    "wc_deadline": str(deadlines["wc_deadline"]),
-                    "sales_deadline": str(deadlines["sales_deadline"]),
-                    "partner_success_deadline": str(deadlines["partner_success_deadline"]),
+                    "approval_deadline": deadlines["approval_deadline"],
+                    "wc_deadline": deadlines["wc_deadline"],
+                    "sales_deadline": deadlines["sales_deadline"],
+                    "partner_success_deadline": deadlines["partner_success_deadline"],
                     "season": team["season"],
                     "source": "manual",
                 }

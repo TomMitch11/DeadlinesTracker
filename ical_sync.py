@@ -3,7 +3,7 @@ import requests
 from datetime import date, datetime, timezone as _tz
 from icalendar import Calendar
 import db
-from deadline_calc import calc_all_deadlines
+from deadline_calc import calc_fixture_deadlines, deadlines_to_str
 
 _BASE_TEAM = "https://ics.fixtur.es/v2/home/{}.ics"
 _BASE_LEAGUE = "https://ics.fixtur.es/v2/league/{}.ics"
@@ -51,11 +51,19 @@ def _parse_away_team(summary: str) -> str:
     return ""
 
 
-def sync_team(team: dict, holidays: list[date]) -> tuple[dict, list[dict], list[dict]]:
+def sync_team(
+    team: dict,
+    holidays: list[date],
+    weekday_rules: dict[int, int] | None = None,
+    overridden_ids: set[str] | None = None,
+) -> tuple[dict, list[dict], list[dict]]:
     """Returns (stats, new_fixtures, rescheduled_fixtures)."""
     slug = team.get("feed_team_id", "")
     if not slug:
         raise ValueError(f"No feed_team_id (fixtur.es slug) set for team '{team['name']}'")
+
+    weekday_rules = weekday_rules or {}
+    overridden_ids = overridden_ids or set()
 
     events = _fetch_events(_BASE_TEAM.format(slug))
 
@@ -93,8 +101,6 @@ def sync_team(team: dict, holidays: list[date]) -> tuple[dict, list[dict], list[
         if league_uids and uid and uid not in league_uids:
             cup_warning = f"This fixture may be a cup game — not found in the {team.get('competition', 'league')} feed."
 
-        deadlines = calc_all_deadlines(match_date, team["deadline_days"], holidays)
-
         # Check for existing fixture to detect reschedules
         existing = db.get_fixture_by_feed_event_id(game_id) if game_id else None
         is_new = existing is None
@@ -104,16 +110,21 @@ def sync_team(team: dict, holidays: list[date]) -> tuple[dict, list[dict], list[
              (existing.get("match_time") or "") != (match_time or ""))
         )
 
+        if game_id in overridden_ids:
+            deadline_fields = {}
+            display_approval_deadline = existing.get("approval_deadline") if existing else None
+        else:
+            deadlines = calc_fixture_deadlines(match_date, team, weekday_rules, holidays)
+            deadline_fields = deadlines_to_str(deadlines)
+            display_approval_deadline = deadline_fields["approval_deadline"]
+
         fixture = {
             "team_id": team["id"],
             "away_team": away_name,
             "match_date": str(match_date),
             "match_time": match_time,
             "match_utc_offset": "+00:00" if match_time else None,
-            "approval_deadline": str(deadlines["approval_deadline"]),
-            "wc_deadline": str(deadlines["wc_deadline"]),
-            "sales_deadline": str(deadlines["sales_deadline"]),
-            "partner_success_deadline": str(deadlines["partner_success_deadline"]),
+            **deadline_fields,
             "season": team["season"],
             "source": "ical",
             "feed_event_id": game_id,
@@ -129,7 +140,7 @@ def sync_team(team: dict, holidays: list[date]) -> tuple[dict, list[dict], list[
             "match_date": str(match_date),
             "competition": team.get("competition") or "",
             "venue": team.get("default_venue") or "",
-            "approval_deadline": str(deadlines["approval_deadline"]),
+            "approval_deadline": display_approval_deadline,
             "cup_warning": cup_warning,
         }
         if is_new:
@@ -154,6 +165,8 @@ def sync_all_ical_teams() -> dict[str, dict]:
     """Sync all iCal teams and send email notification if anything changed."""
     holidays_raw = db.get_holidays()
     holidays = [date.fromisoformat(h["date"]) for h in holidays_raw]
+    weekday_map = db.get_deadline_weekdays_by_team()
+    overridden_ids = db.get_overridden_feed_event_ids()
     teams = [t for t in db.get_teams() if t.get("feed_source") == "ical"]
 
     all_new: list[dict] = []
@@ -162,7 +175,7 @@ def sync_all_ical_teams() -> dict[str, dict]:
 
     for team in teams:
         try:
-            stats, new_f, resched_f = sync_team(team, holidays)
+            stats, new_f, resched_f = sync_team(team, holidays, weekday_map.get(team["id"], {}), overridden_ids)
         except (ConnectionError, PermissionError, ValueError) as e:
             results[team["name"]] = {"error": str(e)}
             continue

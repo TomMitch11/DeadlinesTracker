@@ -211,9 +211,11 @@ def test_sync_all_ical_teams_isolates_per_team_errors():
     bad_team = {**TEAM, "name": "Bad Team", "feed_team_id": ""}
 
     with patch("db.get_holidays", return_value=[]), \
+         patch("db.get_deadline_weekdays_by_team", return_value={}), \
+         patch("db.get_overridden_feed_event_ids", return_value=set()), \
          patch("db.get_teams", return_value=[good_team, bad_team]), \
          patch("ical_sync.sync_team") as mock_sync:
-        def side_effect(team, holidays):
+        def side_effect(team, holidays, weekday_rules=None, overridden_ids=None):
             if team["name"] == "Good Team":
                 return {"upserted": 1}, [{"away_team": "X"}], []
             raise ValueError("No feed_team_id set")
@@ -232,6 +234,8 @@ def test_sync_all_ical_teams_filters_by_feed_source():
     other_team = {**TEAM, "name": "Other", "feed_source": "opta"}
 
     with patch("db.get_holidays", return_value=[]), \
+         patch("db.get_deadline_weekdays_by_team", return_value={}), \
+         patch("db.get_overridden_feed_event_ids", return_value=set()), \
          patch("db.get_teams", return_value=[ical_team, other_team]), \
          patch("ical_sync.sync_team", return_value=({"upserted": 0}, [], [])) as mock_sync:
         sync_all_ical_teams()
@@ -241,9 +245,27 @@ def test_sync_all_ical_teams_filters_by_feed_source():
 
 def test_sync_all_ical_teams_skips_notification_when_nothing_changed():
     with patch("db.get_holidays", return_value=[]), \
+         patch("db.get_deadline_weekdays_by_team", return_value={}), \
+         patch("db.get_overridden_feed_event_ids", return_value=set()), \
          patch("db.get_teams", return_value=[TEAM]), \
          patch("ical_sync.sync_team", return_value=({"upserted": 0}, [], [])), \
          patch("notifications.send_sync_summary") as mock_notify:
         sync_all_ical_teams()
 
     mock_notify.assert_not_called()
+
+
+def test_sync_team_skips_deadline_fields_for_overridden_fixture():
+    future = datetime.now(tz.utc) + timedelta(days=10)
+    content = _ics([{"summary": "LA Galaxy - Portland", "dtstart": future, "uid": "evt-1"}])
+    existing = {"id": "fid-1", "match_date": "2020-01-01", "match_time": None, "away_team": "Portland",
+                "venue": "", "approval_deadline": "2020-01-05"}
+    with patch("ical_sync.requests.get", return_value=_fake_response(content)), \
+         patch("db.get_fixture_by_feed_event_id", return_value=existing), \
+         patch("db.upsert_fixture", return_value="fid-1") as mock_upsert, \
+         patch("db.create_upload_statuses_for_fixture"):
+        sync_team(TEAM, [], {}, {"ical_evt-1"})
+
+    fixture = mock_upsert.call_args[0][0]
+    assert "approval_deadline" not in fixture
+    assert "wc_deadline" not in fixture

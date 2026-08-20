@@ -232,9 +232,11 @@ def test_sync_all_opta_teams_isolates_per_team_errors():
     bad_team = {**TEAM, "name": "Bad Team", "feed_team_id": ""}
 
     with patch("db.get_holidays", return_value=[]), \
+         patch("db.get_deadline_weekdays_by_team", return_value={}), \
+         patch("db.get_overridden_feed_event_ids", return_value=set()), \
          patch("db.get_teams", return_value=[good_team, bad_team]), \
          patch("opta_sync.sync_team") as mock_sync:
-        def side_effect(team, holidays):
+        def side_effect(team, holidays, weekday_rules=None, overridden_ids=None):
             if team["name"] == "Good Team":
                 return {"upserted": 1}
             raise ValueError("No feed_team_id set")
@@ -251,8 +253,39 @@ def test_sync_all_opta_teams_filters_by_feed_source():
     other_team = {**TEAM, "name": "Other", "feed_source": "ical"}
 
     with patch("db.get_holidays", return_value=[]), \
+         patch("db.get_deadline_weekdays_by_team", return_value={}), \
+         patch("db.get_overridden_feed_event_ids", return_value=set()), \
          patch("db.get_teams", return_value=[opta_team, other_team]), \
          patch("opta_sync.sync_team", return_value={"upserted": 0}) as mock_sync:
         sync_all_opta_teams()
 
     assert mock_sync.call_count == 1
+
+
+def test_sync_team_skips_deadline_fields_for_overridden_fixture():
+    future = str(date.today() + timedelta(days=10))
+    matches = [{"game_id": "77", "date": f"{future} 19:00:00", "home_team_id": "tHOME", "away_team_id": "tAWAY", "utc_offset": ""}]
+
+    with patch("opta_sync.get_opta_config", return_value=FAKE_CFG), \
+         patch("opta_sync._fetch_and_parse", return_value=(matches, {}, "")), \
+         patch("db.upsert_fixture", return_value="fid-1") as mock_upsert, \
+         patch("db.create_upload_statuses_for_fixture"):
+        sync_team(TEAM, [], {}, {"77"})
+
+    fixture = mock_upsert.call_args[0][0]
+    assert "approval_deadline" not in fixture
+    assert "wc_deadline" not in fixture
+    assert "sales_deadline" not in fixture
+    assert "partner_success_deadline" not in fixture
+
+
+def test_sync_all_opta_teams_passes_weekday_map_and_overridden_ids():
+    team = {**TEAM}
+    with patch("db.get_holidays", return_value=[]), \
+         patch("db.get_deadline_weekdays_by_team", return_value={"team-1": {5: 2}}), \
+         patch("db.get_overridden_feed_event_ids", return_value={"evt-x"}), \
+         patch("db.get_teams", return_value=[team]), \
+         patch("opta_sync.sync_team", return_value={"upserted": 0}) as mock_sync:
+        sync_all_opta_teams()
+
+    mock_sync.assert_called_once_with(team, [], {5: 2}, {"evt-x"})

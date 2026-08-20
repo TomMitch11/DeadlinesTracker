@@ -5,7 +5,7 @@ from datetime import date
 
 from config import get_opta_config
 import db
-from deadline_calc import calc_all_deadlines
+from deadline_calc import calc_fixture_deadlines, deadlines_to_str
 
 
 def _ensure_list(value) -> list:
@@ -154,7 +154,12 @@ def _fetch_and_parse(competition_id: str, season_id: str, cfg: dict) -> tuple[li
         raise ValueError(f"Could not parse Opta response as JSON or XML: {e}")
 
 
-def sync_team(team: dict, holidays: list[date]) -> dict:
+def sync_team(
+    team: dict,
+    holidays: list[date],
+    weekday_rules: dict[int, int] | None = None,
+    overridden_ids: set[str] | None = None,
+) -> dict:
     """Sync upcoming home fixtures for one Opta team.
 
     Fetches both the primary season and the preceding season to handle leagues
@@ -164,6 +169,9 @@ def sync_team(team: dict, holidays: list[date]) -> dict:
     """
     if not team.get("feed_team_id"):
         raise ValueError(f"No feed_team_id (Opta team ID) set for team '{team['name']}'")
+
+    weekday_rules = weekday_rules or {}
+    overridden_ids = overridden_ids or set()
 
     cfg = get_opta_config()
     primary_season_id = int(team["season"].split("-")[0])
@@ -215,7 +223,11 @@ def sync_team(team: dict, holidays: list[date]) -> dict:
         away_id = m["away_team_id"]
         away_name = all_teams.get(away_id) or all_teams.get(_norm(away_id)) or away_id
 
-        deadlines = calc_all_deadlines(match_date, team["deadline_days"], holidays)
+        if m["game_id"] in overridden_ids:
+            deadline_fields = {}
+        else:
+            deadlines = calc_fixture_deadlines(match_date, team, weekday_rules, holidays)
+            deadline_fields = deadlines_to_str(deadlines)
 
         raw_date = m["date"]
         match_time_utc = raw_date[11:16] if len(raw_date) > 10 and raw_date[10] == " " else None
@@ -227,10 +239,7 @@ def sync_team(team: dict, holidays: list[date]) -> dict:
             "match_date": str(match_date),
             "match_time": match_time_utc,
             "match_utc_offset": utc_offset,
-            "approval_deadline": str(deadlines["approval_deadline"]),
-            "wc_deadline": str(deadlines["wc_deadline"]),
-            "sales_deadline": str(deadlines["sales_deadline"]),
-            "partner_success_deadline": str(deadlines["partner_success_deadline"]),
+            **deadline_fields,
             "season": team["season"],
             "source": "opta",
             "feed_event_id": m["game_id"],
@@ -252,11 +261,13 @@ def sync_all_opta_teams() -> dict[str, dict]:
     """Sync all teams with feed_source='opta'. Returns {team_name: stats_dict}."""
     holidays_raw = db.get_holidays()
     holidays = [date.fromisoformat(h["date"]) for h in holidays_raw]
+    weekday_map = db.get_deadline_weekdays_by_team()
+    overridden_ids = db.get_overridden_feed_event_ids()
     teams = [t for t in db.get_teams() if t.get("feed_source") == "opta"]
     results: dict[str, dict] = {}
     for team in teams:
         try:
-            results[team["name"]] = sync_team(team, holidays)
+            results[team["name"]] = sync_team(team, holidays, weekday_map.get(team["id"], {}), overridden_ids)
         except (ConnectionError, PermissionError, ValueError) as e:
             results[team["name"]] = {"error": str(e)}
     return results

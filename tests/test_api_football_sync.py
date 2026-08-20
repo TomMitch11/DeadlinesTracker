@@ -137,9 +137,11 @@ def test_sync_all_api_football_teams_isolates_per_team_errors():
     bad_team = {**TEAM, "name": "Bad Team", "feed_team_id": ""}
 
     with patch("db.get_holidays", return_value=[]), \
+         patch("db.get_deadline_weekdays_by_team", return_value={}), \
+         patch("db.get_overridden_feed_event_ids", return_value=set()), \
          patch("db.get_teams", return_value=[good_team, bad_team]), \
          patch("api_football_sync.sync_team") as mock_sync:
-        def side_effect(team, holidays):
+        def side_effect(team, holidays, weekday_rules=None, overridden_ids=None):
             if team["name"] == "Good Team":
                 return {"upserted": 1}
             raise ValueError("No feed_team_id set")
@@ -156,6 +158,8 @@ def test_sync_all_api_football_teams_filters_by_feed_source():
     other_team = {**TEAM, "name": "Other", "feed_source": "ical"}
 
     with patch("db.get_holidays", return_value=[]), \
+         patch("db.get_deadline_weekdays_by_team", return_value={}), \
+         patch("db.get_overridden_feed_event_ids", return_value=set()), \
          patch("db.get_teams", return_value=[apif_team, other_team]), \
          patch("api_football_sync.sync_team", return_value={"upserted": 0}) as mock_sync:
         sync_all_api_football_teams()
