@@ -108,7 +108,6 @@ def _show_detail(
         if fixture.get("source") == "manual":
             st.divider()
             with st.expander("✏️ Edit fixture"):
-                from datetime import date as _date
                 from deadline_calc import calc_fixture_deadlines, deadlines_to_str
                 new_away = st.text_input("Away team", value=fixture["away_team"], key=f"eaway_{fixture['id']}")
                 new_date = st.date_input("Match date", value=_date.fromisoformat(fixture["match_date"]), key=f"edate_{fixture['id']}")
@@ -118,15 +117,27 @@ def _show_detail(
                     value=existing_time,
                     key=f"etime_{fixture['id']}",
                 )
-                holidays_raw = db.get_holidays()
-                holidays = [_date.fromisoformat(h["date"]) for h in holidays_raw]
-                team_data = db.get_team(fixture["team_id"])
-                weekday_rules = db.get_team_deadline_weekdays(fixture["team_id"])
-                new_deadlines = deadlines_to_str(calc_fixture_deadlines(new_date, team_data, weekday_rules, holidays))
-                st.caption(
-                    f"Approval deadline: **{new_deadlines['approval_deadline']}** | "
-                    f"WC deadline: **{new_deadlines['wc_deadline']}**"
-                )
+                if fixture.get("deadline_override"):
+                    new_deadlines = {
+                        "approval_deadline": fixture.get("approval_deadline"),
+                        "wc_deadline": fixture.get("wc_deadline"),
+                        "sales_deadline": fixture.get("sales_deadline"),
+                        "partner_success_deadline": fixture.get("partner_success_deadline"),
+                    }
+                    st.caption(
+                        "Deadline is manually overridden — use the Deadline override "
+                        "control above to change it. Saving here will not touch the deadline."
+                    )
+                else:
+                    holidays_raw = db.get_holidays()
+                    holidays = [_date.fromisoformat(h["date"]) for h in holidays_raw]
+                    team_data = db.get_team(fixture["team_id"])
+                    weekday_rules = db.get_team_deadline_weekdays(fixture["team_id"])
+                    new_deadlines = deadlines_to_str(calc_fixture_deadlines(new_date, team_data, weekday_rules, holidays))
+                    st.caption(
+                        f"Approval deadline: **{new_deadlines['approval_deadline']}** | "
+                        f"WC deadline: **{new_deadlines['wc_deadline']}**"
+                    )
                 if st.button("Save changes", key=f"esave_{fixture['id']}"):
                     import re
                     clean_time = new_time_str.strip()
