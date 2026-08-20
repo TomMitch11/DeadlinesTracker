@@ -349,6 +349,31 @@ with st.sidebar:
         except (ConnectionError, PermissionError, ValueError) as e:
             st.error(str(e))
 
+    if st.button("🔄 Sync from Stats Perform", use_container_width=True):
+        from stats_perform_sync import sync_all_stats_perform_teams
+        try:
+            with st.spinner("Syncing..."):
+                results = sync_all_stats_perform_teams()
+            if not results:
+                st.info("No teams configured with Stats Perform feed source.")
+            else:
+                any_new = False
+                for team_name, s in results.items():
+                    if "error" in s:
+                        st.error(f"{team_name}: {s['error']}")
+                    elif s["upserted"] > 0:
+                        st.success(f"{team_name}: {s['upserted']} fixture(s) added/updated.")
+                        any_new = True
+                    else:
+                        st.info(f"{team_name}: nothing new ({s['total_home']} home match(es) found).")
+                if any_new:
+                    st.cache_data.clear()
+                    st.rerun()
+        except EnvironmentError as e:
+            st.error(str(e))
+        except (ConnectionError, PermissionError, ValueError) as e:
+            st.error(str(e))
+
     st.divider()
     with st.expander("Columns", expanded=False):
         all_info_cols = ["Competition", "Local Kickoff", "UK Kickoff", "Home Team",

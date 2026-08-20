@@ -35,3 +35,11 @@ def get_api_football_config() -> dict[str, str]:
     if not api_key:
         raise EnvironmentError("API_FOOTBALL_KEY must be set")
     return {"api_key": api_key}
+
+def get_sp_config() -> dict[str, str]:
+    load_dotenv(override=True)
+    api_key = os.getenv("SP_PRO_API_KEY")
+    secret = os.getenv("SP_PRO_API_SECRET")
+    if not api_key or not secret:
+        raise EnvironmentError("SP_PRO_API_KEY and SP_PRO_API_SECRET must be set")
+    return {"sp_api_key": api_key, "sp_api_secret": secret}
