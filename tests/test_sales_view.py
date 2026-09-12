@@ -15,7 +15,7 @@ def test_sales_view_shows_only_team_date_and_sales_deadline():
     page_text = " ".join(m.value for m in at.markdown) + " ".join(t.value for t in at.text) + " ".join(str(d.value) for d in at.dataframe)
     assert "Chelsea" in page_text
     assert "Wolves" in page_text
-    assert "2026-06-01" in page_text
+    assert "Mon 01 Jun" in page_text
 
 def test_sales_view_handles_zero_fixtures():
     with patch("db.get_sales_fixtures", return_value=[]):
