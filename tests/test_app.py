@@ -141,3 +141,59 @@ def test_edit_fixture_form_recomputes_when_not_overridden():
     assert result["holidays_called"] is True
     assert result["team_called"] is True
     assert result["weekdays_called"] is True
+
+
+def test_show_detail_venue_is_collapsed_in_its_own_expander():
+    fixture = dict(_BASE_FIXTURE)
+    fixture["notes"] = "Existing note text"
+    with patch("db.get_delivery_contacts", return_value=[]):
+        at = AppTest.from_function(
+            _edit_form_script, args=(fixture, _PLATFORMS, _STATUSES)
+        )
+        at.run(timeout=15)
+        assert not at.exception
+
+    venue_expander = next(e for e in at.expander if e.label == "Venue")
+    venue_key = f"venue_{fixture['id']}"
+    assert venue_expander.text_input(key=venue_key).value == ""
+
+
+def test_show_detail_notes_rendered_outside_any_expander():
+    fixture = dict(_BASE_FIXTURE)
+    fixture["notes"] = "Existing note text"
+    with patch("db.get_delivery_contacts", return_value=[]):
+        at = AppTest.from_function(
+            _edit_form_script, args=(fixture, _PLATFORMS, _STATUSES)
+        )
+        at.run(timeout=15)
+        assert not at.exception
+
+    notes_key = f"notes_{fixture['id']}"
+    # Notes must still be directly readable/settable at the top level...
+    assert at.text_area(key=notes_key).value == "Existing note text"
+    # ...and must NOT have ended up nested inside any expander (Venue,
+    # Columns, Edit fixture, Admin & Sync) — it should stand on its own,
+    # not be tucked away like the de-prioritized controls.
+    for e in at.expander:
+        assert notes_key not in [w.key for w in e.text_area]
+
+
+def test_admin_and_sync_controls_are_collapsed_together():
+    fixture = dict(_BASE_FIXTURE)
+    with patch("db.get_delivery_contacts", return_value=[]):
+        at = AppTest.from_function(
+            _edit_form_script, args=(fixture, _PLATFORMS, _STATUSES)
+        )
+        at.run(timeout=15)
+        assert not at.exception
+
+    admin_expander = next(e for e in at.expander if e.label == "⚙️ Admin & Sync")
+    admin_button_labels = [b.label for b in admin_expander.button]
+    assert "➕ Add fixture" in admin_button_labels
+    assert "🔄 Sync from iCal" in admin_button_labels
+    assert "🔄 Sync from API-Football" in admin_button_labels
+    assert "🔄 Sync from Opta" in admin_button_labels
+    assert "🔄 Sync from Stats Perform" in admin_button_labels
+    # The Columns picker must still live inside this same collapsed section.
+    nested_expander_labels = [e2.label for e2 in admin_expander.expander]
+    assert "Columns" in nested_expander_labels

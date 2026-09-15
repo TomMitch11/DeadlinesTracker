@@ -20,28 +20,29 @@ def _show_detail(
         st.subheader(f"{team_name} vs {fixture['away_team']}")
         st.caption(f"Match date: {fixture['match_date']}")
 
-        venue = st.text_input(
-            "Venue",
-            value=fixture.get("venue") or "",
-            key=f"venue_{fixture['id']}",
-        )
-        if st.button("Save venue", key=f"save_venue_{fixture['id']}"):
-            db.update_fixture_venue(fixture["id"], venue.strip() or None)
-            st.cache_data.clear()
-            st.rerun()
-
-        st.divider()
-
+        st.markdown("**📝 Notes**")
         notes = st.text_area(
             "Notes",
             value=fixture.get("notes", ""),
             key=f"notes_{fixture['id']}",
             height=120,
+            label_visibility="collapsed",
         )
         if st.button("Save notes", key=f"save_notes_{fixture['id']}"):
             db.update_fixture_notes(fixture["id"], notes)
             st.cache_data.clear()
             st.rerun()
+
+        with st.expander("Venue"):
+            venue = st.text_input(
+                "Venue",
+                value=fixture.get("venue") or "",
+                key=f"venue_{fixture['id']}",
+            )
+            if st.button("Save venue", key=f"save_venue_{fixture['id']}"):
+                db.update_fixture_venue(fixture["id"], venue.strip() or None)
+                st.cache_data.clear()
+                st.rerun()
 
         st.divider()
 
@@ -268,7 +269,8 @@ selected_team_ids = [t["id"] for t in filtered_teams] if (selected_competitions 
 days = days_options[selected_label]
 
 # ── Sidebar controls ─────────────────────────────────────────────────────────
-with st.sidebar:
+admin_expander = st.sidebar.expander("⚙️ Admin & Sync", expanded=False)
+with admin_expander:
     if st.button("➕ Add fixture", use_container_width=True):
         st.session_state.show_add_form = True
 
@@ -397,7 +399,7 @@ styled = style_tracker_df(df, platforms, statuses)
 visible_cols = [c for c in df.columns if c not in hidden_cols]
 styled = styled.hide(axis="columns", subset=[c for c in hidden_cols if c in df.columns])
 
-with st.sidebar:
+with admin_expander:
     st.download_button(
         "⬇️ Download Excel",
         data=build_excel_export(df[visible_cols]),
