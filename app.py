@@ -246,7 +246,14 @@ platform_names = [p["name"] for p in platforms]
 
 # ── Filters ───────────────────────────────────────────────────────────────────
 st.title("Deadlines Tracker")
-col_comp, col_name, col_days = st.columns([2, 3, 1])
+
+
+@st.cache_data(ttl=60)
+def load_wc_deadlines():
+    return db.get_upcoming_wc_deadlines()
+
+
+col_comp, col_name, col_wc, col_days = st.columns([2, 2, 2, 2])
 with col_comp:
     competition_options = sorted({t["competition"] for t in teams if t.get("competition")})
     selected_competitions = st.multiselect("Competition (leave blank for all)", competition_options)
@@ -256,9 +263,18 @@ with col_name:
         if not selected_competitions or t.get("competition") in selected_competitions
     ]
     selected_team_names = st.multiselect("Teams (leave blank for all)", team_options)
+with col_wc:
+    wc_deadlines = load_wc_deadlines()
+    wc_labels = {_date.fromisoformat(d).strftime("%d %b"): d for d in wc_deadlines}
+    wc_choice = st.selectbox("Week commencing (deadline)", ["All weeks"] + list(wc_labels.keys()))
+    selected_wc = wc_labels.get(wc_choice)
 with col_days:
     days_options = {"Next 7 days": 7, "Next 14 days": 14, "Next 30 days": 30, "All upcoming": None}
-    selected_label = st.selectbox("Time window", list(days_options.keys()), index=1)
+    selected_label = st.selectbox(
+        "Time window", list(days_options.keys()), index=1,
+        disabled=selected_wc is not None,
+        help="Filters by deadline, not kickoff date. Ignored when a specific week is selected above.",
+    )
 
 # Resolve team IDs: competition filter narrows the pool, team filter narrows further
 filtered_teams = [
@@ -387,7 +403,7 @@ with admin_expander:
         ]
 
 # ── Load fixtures ─────────────────────────────────────────────────────────────
-fixtures = db.get_upcoming_fixtures(days=days, team_ids=selected_team_ids)
+fixtures = db.get_upcoming_fixtures(days=days, team_ids=selected_team_ids, wc_deadline=selected_wc)
 
 if not fixtures:
     st.info("No upcoming fixtures for the selected filters.")

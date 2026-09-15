@@ -12,9 +12,16 @@ def _client() -> Client:
 def get_upcoming_fixtures(
     days: int | None = 14,
     team_ids: list[str] | None = None,
+    wc_deadline: str | None = None,
     *,
     client: Client | None = None,
 ) -> list[dict]:
+    """Fixtures for the main tracker. Windowed by deadline, not by kickoff:
+    `days` bounds how far out `approval_deadline` can fall (a fixture whose
+    match hasn't happened yet stays visible even with an overdue deadline,
+    regardless of window size, since match_date is the only floor). Passing
+    `wc_deadline` (an ISO date, the Monday of a deadline week) selects that
+    exact week and overrides `days` entirely — the two are not combined."""
     cl = client or _client()
     today = date.today()
     q = (
@@ -31,12 +38,32 @@ def get_upcoming_fixtures(
         )
         .gte("match_date", str(today))
     )
-    if days is not None:
+    if wc_deadline is not None:
+        q = q.eq("wc_deadline", wc_deadline)
+    elif days is not None:
         cutoff = today + timedelta(days=days)
-        q = q.lte("match_date", str(cutoff))
+        q = q.lte("approval_deadline", str(cutoff))
     if team_ids:
         q = q.in_("team_id", team_ids)
     return q.order("approval_deadline").execute().data
+
+
+def get_upcoming_wc_deadlines(days: int = 180, *, client: Client | None = None) -> list[str]:
+    """Distinct week-commencing deadlines (ISO Mondays) across fixtures whose
+    match hasn't happened yet, sorted ascending -- populates the Week
+    Commencing filter dropdown independent of the main day-count window."""
+    cl = client or _client()
+    today = date.today()
+    cutoff = today + timedelta(days=days)
+    rows = (
+        cl.table("fixtures")
+        .select("wc_deadline")
+        .gte("match_date", str(today))
+        .lte("match_date", str(cutoff))
+        .execute()
+        .data
+    )
+    return sorted({r["wc_deadline"] for r in rows if r.get("wc_deadline")})
 
 def get_sales_fixtures(days: int = 14, *, client: Client | None = None) -> list[dict]:
     """Sales-facing fixtures. Deliberately selects only sales_deadline —

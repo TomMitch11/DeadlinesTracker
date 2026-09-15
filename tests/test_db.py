@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -61,6 +61,31 @@ def test_get_upcoming_fixtures_selects_deadline_override_and_partner_success_dea
     selected = select_call.args[0]
     assert "deadline_override" in selected
     assert "partner_success_deadline" in selected
+
+def test_get_upcoming_fixtures_windows_by_approval_deadline_not_match_date(mock_sb):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[])
+    db.get_upcoming_fixtures(days=7, client=client)
+    cutoff = str(date.today() + timedelta(days=7))
+    chain.lte.assert_called_with("approval_deadline", cutoff)
+
+def test_get_upcoming_fixtures_wc_deadline_overrides_days_window(mock_sb):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[])
+    db.get_upcoming_fixtures(days=7, wc_deadline="2026-09-22", client=client)
+    chain.eq.assert_called_with("wc_deadline", "2026-09-22")
+    chain.lte.assert_not_called()
+
+def test_get_upcoming_wc_deadlines_returns_sorted_distinct(mock_sb):
+    client, chain = mock_sb
+    chain.execute.return_value = MagicMock(data=[
+        {"wc_deadline": "2026-09-22"},
+        {"wc_deadline": "2026-09-15"},
+        {"wc_deadline": "2026-09-22"},
+        {"wc_deadline": None},
+    ])
+    result = db.get_upcoming_wc_deadlines(client=client)
+    assert result == ["2026-09-15", "2026-09-22"]
 
 def test_get_statuses_returns_list(mock_sb):
     client, chain = mock_sb
