@@ -253,7 +253,7 @@ with col_name:
         t["name"] for t in teams
         if not selected_competitions or t.get("competition") in selected_competitions
     ]
-    selected_team_names = st.multiselect("Clients (leave blank for all)", team_options)
+    selected_team_names = st.multiselect("Teams (leave blank for all)", team_options)
 with col_days:
     days_options = {"Next 7 days": 7, "Next 14 days": 14, "Next 30 days": 30, "All upcoming": None}
     selected_label = st.selectbox("Time window", list(days_options.keys()), index=1)
