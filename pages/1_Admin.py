@@ -69,9 +69,17 @@ with tab_teams:
             min_value=1, max_value=21,
             value=editing.get("deadline_days", 3)
         )
-        st.markdown("**Deadline weekday by match weekday** (leave 'No rule' to use the fallback above)")
+        col_wd_hdr, col_wd_clear = st.columns([5, 1])
+        with col_wd_hdr:
+            st.markdown("**Deadline weekday by match weekday** (leave 'No rule' to use the fallback above)")
         _WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         _weekday_options = ["No rule"] + _WEEKDAY_LABELS
+        _wd_keys = [f"wd_{editing.get('id', 'new')}_{i}" for i in range(7)]
+        with col_wd_clear:
+            if st.form_submit_button("Clear all"):
+                for k in _wd_keys:
+                    st.session_state[k] = "No rule"
+                st.rerun()
         existing_rules = db.get_team_deadline_weekdays(editing["id"]) if editing.get("id") else {}
         weekday_cols = st.columns(7)
         selected_rules: dict[int, int] = {}
@@ -92,15 +100,23 @@ with tab_teams:
             _feed_sources,
             index=_feed_sources.index(editing.get("feed_source", "manual")),
         )
-        feed_competition_id = st.text_input(
-            "Competition / League ID (Opta competition ID or API-Football league ID)",
-            value=editing.get("feed_competition_id") or "",
-        )
-        _ical_hint = " — for iCal, this is the fixtur.es slug e.g. tottenham-hotspur-women" if editing.get("feed_source") == "ical" else ""
-        feed_team_id = st.text_input(
-            f"Team ID in feed (Opta / Stats Perform / API-Football ID, or fixtur.es slug for iCal){_ical_hint}",
-            value=editing.get("feed_team_id") or "",
-        )
+        if editing.get("feed_source", "manual") != "manual":
+            feed_competition_id = st.text_input(
+                "Competition / League ID (Opta competition ID or API-Football league ID)",
+                value=editing.get("feed_competition_id") or "",
+            )
+            _ical_hint = " — for iCal, this is the fixtur.es slug e.g. tottenham-hotspur-women" if editing.get("feed_source") == "ical" else ""
+            feed_team_id = st.text_input(
+                f"Team ID in feed (Opta / Stats Perform / API-Football ID, or fixtur.es slug for iCal){_ical_hint}",
+                value=editing.get("feed_team_id") or "",
+            )
+        else:
+            # Only relevant for automated feed sources -- hidden for manual
+            # teams (and new teams, which default to manual) since these IDs
+            # do nothing until the saved feed_source is switched away from
+            # manual. Preserve whatever's already stored rather than wiping it.
+            feed_competition_id = editing.get("feed_competition_id") or ""
+            feed_team_id = editing.get("feed_team_id") or ""
         default_venue = st.text_input(
             "Default venue (used when syncing fixtures — can be overridden per fixture)",
             value=editing.get("default_venue") or "",
