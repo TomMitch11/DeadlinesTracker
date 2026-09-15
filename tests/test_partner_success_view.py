@@ -15,7 +15,7 @@ def test_partner_success_view_shows_fixture_and_platforms():
     assert not at.exception
     page_text = " ".join(m.value for m in at.markdown) + " ".join(t.value for t in at.text) + " ".join(str(d.value) for d in at.dataframe)
     assert "Chelsea" in page_text
-    assert "2026-06-04" in page_text
+    assert "Thu 04 Jun" in page_text
     assert "Big Screen" in page_text
     assert "Programme Page" in page_text
 
