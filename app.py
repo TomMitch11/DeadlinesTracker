@@ -409,12 +409,18 @@ with st.sidebar:
 # ── Tracker table ─────────────────────────────────────────────────────────────
 st.caption(f"Showing {len(fixtures)} fixture(s). Click a row to view details and update statuses.")
 
+row_height = 35
+header_height = 38
+table_height = header_height + row_height * min(len(fixtures), 15)
+
 event = st.dataframe(
     styled,
     use_container_width=True,
     hide_index=True,
     on_select="rerun",
     selection_mode="single-row",
+    height=table_height,
+    row_height=row_height,
 )
 
 # ── Detail panel ──────────────────────────────────────────────────────────────
