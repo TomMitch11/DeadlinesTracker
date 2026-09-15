@@ -97,3 +97,20 @@ def test_build_excel_export_respects_column_subset():
     xlsx_bytes = build_excel_export(subset)
     result = pd.read_excel(io.BytesIO(xlsx_bytes))
     assert list(result.columns) == ["Home Team", "Away Team"]
+
+def test_style_tracker_df_highlights_notes_when_present():
+    df = build_tracker_df([FIXTURE], PLATFORMS, STATUSES)
+    styler = style_tracker_df(df, PLATFORMS, STATUSES)
+    styler._compute()
+    notes_col = df.columns.get_loc("Notes")
+    assert ("background-color", "#d1ecf1") in styler.ctx[(0, notes_col)]
+
+def test_style_tracker_df_no_notes_highlight_when_empty():
+    from datetime import date, timedelta
+    future = (date.today() + timedelta(days=30)).isoformat()
+    quiet = {**FIXTURE, "notes": "", "approval_deadline": future}
+    df = build_tracker_df([quiet], PLATFORMS, STATUSES)
+    styler = style_tracker_df(df, PLATFORMS, STATUSES)
+    styler._compute()
+    notes_col = df.columns.get_loc("Notes")
+    assert styler.ctx.get((0, notes_col), []) == []
