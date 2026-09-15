@@ -1,4 +1,5 @@
 import sys
+from datetime import datetime
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -7,6 +8,13 @@ import db
 
 st.set_page_config(page_title="Partner Success — Deadlines", layout="wide")
 st.title("Partner Success deadlines")
+
+
+def _fmt_date(date_str):
+    if not date_str:
+        return ""
+    return datetime.strptime(date_str, "%Y-%m-%d").strftime("%a %d %b")
+
 
 try:
     fixtures = db.get_partner_success_fixtures(days=14)
@@ -21,8 +29,8 @@ else:
         {
             "Team": f["teams"]["name"],
             "Away Team": f["away_team"],
-            "Match Date": f["match_date"],
-            "Partner Success Deadline": f["partner_success_deadline"] or "",
+            "Match Date": _fmt_date(f["match_date"]),
+            "Partner Success Deadline": _fmt_date(f["partner_success_deadline"]),
             "Platforms Needed": ", ".join(f["platform_names"]) if f["platform_names"] else "",
         }
         for f in fixtures
