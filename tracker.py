@@ -114,7 +114,7 @@ def style_tracker_df(
         return f"background-color: {c}; color: white" if c else ""
 
     def notes_cell_style(val: str) -> str:
-        return "background-color: #d1ecf1; color: #0c5460" if val else ""
+        return "background-color: #d1ecf1; color: #0c5460" if str(val).strip() else ""
 
     pending_label = next((s["label"] for s in statuses if s["name"] == "pending"), "Pending")
     today_str = today.isoformat()
@@ -140,9 +140,9 @@ def style_tracker_df(
     deadline_cols = [c for c in ["Approval Deadline", "WC Deadline", "Sales Deadline"] if c in df.columns]
 
     styler = df.style.map(cell_style, subset=platform_names)
+    styler = styler.apply(row_style, axis=1)
     if "Notes" in df.columns:
         styler = styler.map(notes_cell_style, subset=["Notes"])
-    styler = styler.apply(row_style, axis=1)
     styler = styler.format(fmt_date, subset=deadline_cols)
     return styler
 

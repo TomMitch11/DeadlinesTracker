@@ -20,18 +20,19 @@ def _show_detail(
         st.subheader(f"{team_name} vs {fixture['away_team']}")
         st.caption(f"Match date: {fixture['match_date']}")
 
-        st.markdown("**📝 Notes**")
-        notes = st.text_area(
-            "Notes",
-            value=fixture.get("notes", ""),
-            key=f"notes_{fixture['id']}",
-            height=120,
-            label_visibility="collapsed",
-        )
-        if st.button("Save notes", key=f"save_notes_{fixture['id']}"):
-            db.update_fixture_notes(fixture["id"], notes)
-            st.cache_data.clear()
-            st.rerun()
+        with st.container(border=True):
+            st.markdown("**📝 Notes**")
+            notes = st.text_area(
+                "Notes",
+                value=fixture.get("notes", ""),
+                key=f"notes_{fixture['id']}",
+                height=120,
+                label_visibility="collapsed",
+            )
+            if st.button("Save notes", key=f"save_notes_{fixture['id']}"):
+                db.update_fixture_notes(fixture["id"], notes)
+                st.cache_data.clear()
+                st.rerun()
 
         with st.expander("Venue"):
             venue = st.text_input(
@@ -399,6 +400,9 @@ styled = style_tracker_df(df, platforms, statuses)
 visible_cols = [c for c in df.columns if c not in hidden_cols]
 styled = styled.hide(axis="columns", subset=[c for c in hidden_cols if c in df.columns])
 
+# Reuses the same admin_expander opened above, so Download Excel lands in
+# the same collapsed "Admin & Sync" section rather than sitting bare in
+# the sidebar.
 with admin_expander:
     st.download_button(
         "⬇️ Download Excel",

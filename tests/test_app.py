@@ -154,6 +154,7 @@ def test_show_detail_venue_is_collapsed_in_its_own_expander():
         assert not at.exception
 
     venue_expander = next(e for e in at.expander if e.label == "Venue")
+    assert venue_expander.proto.expanded is False
     venue_key = f"venue_{fixture['id']}"
     assert venue_expander.text_input(key=venue_key).value == ""
 
@@ -188,6 +189,7 @@ def test_admin_and_sync_controls_are_collapsed_together():
         assert not at.exception
 
     admin_expander = next(e for e in at.expander if e.label == "⚙️ Admin & Sync")
+    assert admin_expander.proto.expanded is False
     admin_button_labels = [b.label for b in admin_expander.button]
     assert "➕ Add fixture" in admin_button_labels
     assert "🔄 Sync from iCal" in admin_button_labels
@@ -197,3 +199,16 @@ def test_admin_and_sync_controls_are_collapsed_together():
     # The Columns picker must still live inside this same collapsed section.
     nested_expander_labels = [e2.label for e2 in admin_expander.expander]
     assert "Columns" in nested_expander_labels
+
+
+def test_teams_filter_label_is_renamed():
+    fixture = dict(_BASE_FIXTURE)
+    with patch("db.get_delivery_contacts", return_value=[]):
+        at = AppTest.from_function(
+            _edit_form_script, args=(fixture, _PLATFORMS, _STATUSES)
+        )
+        at.run(timeout=15)
+        assert not at.exception
+
+    multiselect_labels = [m.label for m in at.multiselect]
+    assert "Teams (leave blank for all)" in multiselect_labels

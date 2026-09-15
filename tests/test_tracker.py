@@ -103,7 +103,12 @@ def test_style_tracker_df_highlights_notes_when_present():
     styler = style_tracker_df(df, PLATFORMS, STATUSES)
     styler._compute()
     notes_col = df.columns.get_loc("Notes")
-    assert ("background-color", "#d1ecf1") in styler.ctx[(0, notes_col)]
+    ctx = styler.ctx[(0, notes_col)]
+    background_colors = [v for prop, v in ctx if prop == "background-color"]
+    assert background_colors[-1] == "#d1ecf1", (
+        f"expected the teal Notes highlight to win (be declared last) over any row-level "
+        f"style on this cell, got background-color declarations in order: {background_colors}"
+    )
 
 def test_style_tracker_df_no_notes_highlight_when_empty():
     from datetime import date, timedelta
