@@ -26,7 +26,7 @@ def _show_detail(
                 "Notes",
                 value=fixture.get("notes", ""),
                 key=f"notes_{fixture['id']}",
-                height=120,
+                height=320,
                 label_visibility="collapsed",
             )
             if st.button("Save notes", key=f"save_notes_{fixture['id']}"):
