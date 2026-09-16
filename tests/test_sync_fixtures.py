@@ -88,6 +88,21 @@ def test_run_all_syncs_scrubs_credentials_from_team_error_before_printing(capsys
     assert "user=[redacted]" in captured.out
 
 
+def test_run_all_syncs_scrubs_credentials_from_source_failure_before_printing(capsys):
+    secret_error = "401 Client Error: Unauthorized for url: http://omo.akamai.opta.net/x?user=bob&psw=hunter2"
+    with patch("sync_fixtures.sync_all_ical_teams", return_value={}), \
+         patch("sync_fixtures.sync_all_opta_teams", side_effect=ConnectionError(secret_error)), \
+         patch("sync_fixtures.sync_all_stats_perform_teams", return_value={}), \
+         patch("sync_fixtures.sync_all_api_football_teams", return_value={}):
+        sync_fixtures.run_all_syncs()
+    captured = capsys.readouterr()
+    assert "hunter2" not in captured.out
+    assert "bob" not in captured.out
+    assert "SOURCE FAILED Opta" in captured.out
+    assert "psw=[redacted]" in captured.out
+    assert "user=[redacted]" in captured.out
+
+
 def test_run_all_syncs_continues_past_unexpected_exception_and_returns_false():
     with patch("sync_fixtures.sync_all_ical_teams", side_effect=ConnectionError("db blip")) as m_ical, \
          patch("sync_fixtures.sync_all_opta_teams", return_value={"Team B": {"upserted": 1}}) as m_opta, \
