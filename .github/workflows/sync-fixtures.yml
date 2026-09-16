@@ -8,6 +8,12 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: sync-fixtures
+      cancel-in-progress: false
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
