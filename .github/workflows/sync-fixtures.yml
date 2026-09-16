@@ -1,0 +1,30 @@
+name: Sync fixtures
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run fixture sync
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          OMO_USERNAME: ${{ secrets.OMO_USERNAME }}
+          OMO_PASSWORD: ${{ secrets.OMO_PASSWORD }}
+          SP_PRO_API_KEY: ${{ secrets.SP_PRO_API_KEY }}
+          SP_PRO_API_SECRET: ${{ secrets.SP_PRO_API_SECRET }}
+        run: python sync_fixtures.py
