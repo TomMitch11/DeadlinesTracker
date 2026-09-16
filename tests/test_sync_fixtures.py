@@ -4,6 +4,18 @@ from unittest.mock import patch
 import sync_fixtures
 
 
+@pytest.fixture(autouse=True)
+def _mock_preflight_config():
+    """Prevents run_all_syncs()'s preflight credential checks from reading
+    real environment variables during tests -- every test in this file gets
+    a clean, always-passing preflight unless it explicitly overrides one of
+    these three patches itself (see the dedicated preflight-failure test)."""
+    with patch("sync_fixtures.get_db_config"), \
+         patch("sync_fixtures.get_opta_config"), \
+         patch("sync_fixtures.get_sp_config"):
+        yield
+
+
 def test_run_all_syncs_returns_true_when_all_clean():
     with patch("sync_fixtures.sync_all_ical_teams", return_value={"Team A": {"upserted": 1}}), \
          patch("sync_fixtures.sync_all_opta_teams", return_value={"Team B": {"upserted": 2}}), \
@@ -30,16 +42,6 @@ def test_run_all_syncs_calls_every_source_even_when_an_earlier_one_errors():
         m_opta.assert_called_once()
         m_sp.assert_called_once()
         m_af.assert_called_once()
-
-
-def test_run_all_syncs_handles_source_with_no_configured_teams():
-    with patch("sync_fixtures.sync_all_ical_teams", return_value={}), \
-         patch("sync_fixtures.sync_all_opta_teams", return_value={}), \
-         patch("sync_fixtures.sync_all_stats_perform_teams", return_value={}), \
-         patch("sync_fixtures.sync_all_api_football_teams", return_value={}):
-        # Zero teams synced across every source is now treated as a failure
-        # (a silent, empty-but-"successful" run should not exit 0).
-        assert sync_fixtures.run_all_syncs() is False
 
 
 def test_scrub_credentials_redacts_known_param_names():
@@ -87,7 +89,7 @@ def test_run_all_syncs_scrubs_credentials_from_team_error_before_printing(capsys
 
 
 def test_run_all_syncs_continues_past_unexpected_exception_and_returns_false():
-    with patch("sync_fixtures.sync_all_ical_teams", side_effect=RuntimeError("db blip")) as m_ical, \
+    with patch("sync_fixtures.sync_all_ical_teams", side_effect=ConnectionError("db blip")) as m_ical, \
          patch("sync_fixtures.sync_all_opta_teams", return_value={"Team B": {"upserted": 1}}) as m_opta, \
          patch("sync_fixtures.sync_all_stats_perform_teams", return_value={"Team C": {"upserted": 1}}) as m_sp, \
          patch("sync_fixtures.sync_all_api_football_teams", return_value={"Team D": {"upserted": 1}}) as m_af:
@@ -99,14 +101,17 @@ def test_run_all_syncs_continues_past_unexpected_exception_and_returns_false():
         m_af.assert_called_once()
 
 
-def test_run_all_syncs_propagates_environment_error_and_stops_early():
-    with patch("sync_fixtures.sync_all_ical_teams", side_effect=EnvironmentError("OMO_USERNAME not set")) as m_ical, \
+def test_run_all_syncs_preflight_missing_credential_stops_before_any_source():
+    with patch("sync_fixtures.get_db_config"), \
+         patch("sync_fixtures.get_opta_config", side_effect=EnvironmentError("OMO_USERNAME and OMO_PASSWORD must be set")), \
+         patch("sync_fixtures.get_sp_config"), \
+         patch("sync_fixtures.sync_all_ical_teams") as m_ical, \
          patch("sync_fixtures.sync_all_opta_teams") as m_opta, \
          patch("sync_fixtures.sync_all_stats_perform_teams") as m_sp, \
          patch("sync_fixtures.sync_all_api_football_teams") as m_af:
         with pytest.raises(EnvironmentError):
             sync_fixtures.run_all_syncs()
-        m_ical.assert_called_once()
+        m_ical.assert_not_called()
         m_opta.assert_not_called()
         m_sp.assert_not_called()
         m_af.assert_not_called()

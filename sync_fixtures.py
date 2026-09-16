@@ -6,6 +6,7 @@ import re
 import sys
 
 from api_football_sync import sync_all_api_football_teams
+from config import get_db_config, get_opta_config, get_sp_config
 from ical_sync import sync_all_ical_teams
 from opta_sync import sync_all_opta_teams
 from stats_perform_sync import sync_all_stats_perform_teams
@@ -25,21 +26,33 @@ def _scrub_credentials(text: str) -> str:
 
 def run_all_syncs() -> bool:
     """Runs every source's sync_all_*_teams(), printing a per-team summary
-    to stdout. Always attempts all four sources, even if an earlier one
-    contains team-level errors or raises an unexpected exception (any
-    EnvironmentError, e.g. a missing credential, still propagates and
-    crashes the script immediately — that's a real misconfiguration, not a
-    flaky feed). Returns True only if every source contributed at least one
-    team and every team's result was error-free; returns False if any team
-    errored, any source raised an unexpected exception, or zero teams were
-    synced across all sources (a silent, empty-but-"successful" run)."""
+    to stdout. Preflights required credentials (Supabase, Opta, Stats
+    Perform -- not API-Football, which has none configured today) before
+    attempting any source, so a genuine misconfiguration (a missing env
+    var) fails fast and deterministically with a clear EnvironmentError,
+    regardless of source order. Once past that check, any other exception
+    during a source's sync (a transient network error, a malformed row) is
+    caught, logged, and the run continues to the next source -- one broken
+    source never prevents the others from being attempted. Returns True
+    only if every team's result was error-free and at least one team was
+    synced somewhere; returns False if any team errored, any source raised
+    an exception, or zero teams were synced across all sources (a silent,
+    empty-but-"successful" run)."""
+    get_db_config()
+    get_opta_config()
+    get_sp_config()
+
     sources = [
         ("iCal", sync_all_ical_teams),
         ("Opta", sync_all_opta_teams),
-        # API-Football last: no credential provisioned for this source today,
-        # so any future team configured for it fails fastest at the end of
-        # the run rather than blocking an earlier, currently-working source.
         ("Stats Perform", sync_all_stats_perform_teams),
+        # API-Football last: no credential provisioned for this source
+        # today, so it's deliberately NOT preflighted above -- if a team is
+        # ever configured for it, its own get_api_football_config() call
+        # raises EnvironmentError from inside sync_team(), which is caught
+        # below by the broad except and reported as an ordinary source
+        # failure, not a script-crashing misconfiguration (that treatment
+        # is reserved for the three sources preflighted above).
         ("API-Football", sync_all_api_football_teams),
     ]
     all_clean = True
@@ -48,11 +61,9 @@ def run_all_syncs() -> bool:
         print(f"=== {source_name} ===")
         try:
             results = sync_fn()
-        except EnvironmentError:
-            raise
         except Exception as e:
             all_clean = False
-            print(f"  SOURCE FAILED {source_name}: {type(e).__name__}: {e}")
+            print(f"  SOURCE FAILED {source_name}: {type(e).__name__}: {_scrub_credentials(str(e))}")
             continue
         if not results:
             print("  (no teams configured for this source)")
